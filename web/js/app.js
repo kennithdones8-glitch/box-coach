@@ -47,7 +47,7 @@ function persist() {
   if (!store.save(state)) toast('Could not save — storage is full or blocked.');
 }
 
-export const APP_VERSION = '2026.10.04-6';
+export const APP_VERSION = '2026.10.04-7';
 
 const app = {
   version: APP_VERSION,
@@ -110,9 +110,9 @@ const routes = {
     if (card && card.i !== state.profile.shareId) {
       state.friends = addFriend(state.friends, card, state.profile.shareId);
       persist();
-      toast(`${card.n} added. You're side by side in Progress → Stats.`);
+      toast(state.profile.onboarded ? `${card.n} added. You're side by side in Progress → Stats.` : `${card.n} added. Answer four quick questions, then compare in Progress → Stats.`);
     } else if (!card) toast("That friend link didn't work. Ask them to share it again.");
-    location.replace('#progress/charts');
+    location.replace(state.profile.onboarded ? '#progress/charts' : '#home'); // new here: the welcome questions first
   },
 };
 

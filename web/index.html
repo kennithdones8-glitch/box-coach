@@ -2,6 +2,8 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
+  <!-- Only these places: the tracking model (jsDelivr, Google storage), YouTube for Study, and Anthropic for the optional Claude check. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://cdn.jsdelivr.net https://storage.googleapis.com https://api.anthropic.com; img-src 'self' data: blob:; media-src 'self' blob: mediastream:; frame-src https://www.youtube-nocookie.com https://www.youtube.com; style-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'self'; form-action 'self'">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#0b0c0e">
   <meta name="description" content="Boxing coach: round timer, punch counter, form and footwork feedback that learns your habits.">
