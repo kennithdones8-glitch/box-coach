@@ -693,3 +693,19 @@ test('hand speed: typical and fastest per round, and how much it fell by the las
   assert.equal(c.topSpeed, 5);
   assert.equal(c.speedDrop, 15);
 });
+
+test('defense moves: a sideways head move is a slip, a dip is a roll, gloves to the forehead is a block', () => {
+  const an = new FormAnalyzer();
+  an.startRound();
+  let t = 0;
+  const run = (frames) => { for (const w of frames) { an.update(w, w.map((p) => ({ x: 0.5 + p.x * 0.3, y: 0.5 + p.y * 0.3, visibility: 0.99 })), t); t += 33; } };
+  run(still(40)); // a normal guard: fists at the chin is not a block
+  const head = (dx, dy) => pose({ [LM.NOSE]: { x: dx, y: -0.62 + dy }, [LM.L_EAR]: { x: 0.07 + dx, y: -0.63 + dy }, [LM.R_EAR]: { x: -0.07 + dx, y: -0.63 + dy } });
+  run([0.3, 0.6, 1, 1, 0.6, 0.3, 0].map((k) => head(0.3 * k, 0.02 * k)));
+  run(still(40));
+  run([0.3, 0.6, 1, 1, 0.6, 0.3, 0].map((k) => pose({ [LM.NOSE]: { x: 0.05 * k, y: -0.62 + 0.3 * k }, [LM.L_SH]: { y: -0.45 + 0.2 * k }, [LM.R_SH]: { y: -0.45 + 0.2 * k } })));
+  run(still(40));
+  run(Array.from({ length: 10 }, () => pose({ [LM.L_WR]: { x: 0.08, y: -0.72 }, [LM.R_WR]: { x: -0.08, y: -0.72 } })));
+  run(still(20));
+  assert.deepEqual(an.round.defLog.map((e) => e.move), ["slip", "roll", "block"], JSON.stringify(an.round.defLog));
+});
