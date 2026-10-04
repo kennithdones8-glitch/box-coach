@@ -257,6 +257,8 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.6); }
 .tabs a { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; font-size: 0.72rem; font-weight: 600; color: var(--muted); }
 .tabs a svg { width: 23px; height: 23px; }
 .tabs a.active { color: var(--accent); }
+body.simple .tabs { grid-template-columns: repeat(3, 1fr); }
+body.simple .tabs a[data-tab="coach"] { display: none; }
 
 /* Charts */
 .chart-wrap { position: relative; }

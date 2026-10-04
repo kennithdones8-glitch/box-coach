@@ -6,7 +6,7 @@ import { BOXING_TYPES, TARGETS, outputPpm, speedText } from '../coach.js';
 import { lineChart } from '../chart.js';
 import { badges } from '../badges.js';
 import { myCard, shareLink, COMPARE } from '../friends.js';
-import { $, $$, esc, shortDate, subnav, subOf, deltaHTML, confDot, scoreClass, toast, pageHead } from '../ui.js';
+import { $, $$, esc, shortDate, subnav, subOf, deltaHTML, confDot, scoreClass, toast, pageHead, isSimple } from '../ui.js';
 import { newId } from '../store.js';
 
 // Progress tab: session history first, then what the sessions add up to.
@@ -256,7 +256,8 @@ function charts(el, app) {
     <section class="card"><h3>Guard up %</h3><div id="c-guard"></div></section>
     ${box.some((s) => s.form?.speed != null) ? `<section class="card"><h3>Hand speed (${state.profile.unit === 'kg' ? 'km/h' : 'mph'})</h3><div id="c-speed"></div><p class="small muted" style="margin:6px 0 0">The camera's estimate, from the same spot each time it's a fair comparison.</p></section>` : ''}
     <section class="card"><h3>Stance held %</h3><div id="c-stance"></div></section>
-    <section class="card"><h3>Training minutes per week</h3><div id="c-weeks"></div></section>`;
+    <section class="card"><h3>Training minutes per week</h3><div id="c-weeks"></div></section>
+    ${isSimple() ? '<p class="small muted center" style="margin:14px 0">Want the deep stuff (fatigue map, style, timeline, coach notes)? Turn off <a href="#coach/settings">Simple mode</a>.</p>' : ''}`;
   $('#shareStats')?.addEventListener('click', async () => {
     if (!state.profile.shareId) { state.profile.shareId = newId(); app.persist(); }
     const url = shareLink(myCard(state));

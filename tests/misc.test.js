@@ -184,3 +184,14 @@ test('lock-screen bells go to the phone through the native bridge, and come back
     assert.equal(calls.at(-1)[1], 'cancel');
   } finally { delete globalThis.Capacitor; }
 });
+
+test('simple mode: on for new installs, off for anyone already using the app', async () => {
+  const store = await import('../web/js/store.js');
+  assert.equal(store.defaultState().settings.simple, true);
+  const mem = new Map();
+  const st = { getItem: (k) => mem.get(k) ?? null, setItem: (k, v) => mem.set(k, v) };
+  mem.set('boxcoach.v1', JSON.stringify({ sessions: [], settings: { voice: true, voiceV2: true } }));
+  assert.equal(store.load(st).settings.simple, false, 'an existing save keeps every screen');
+  mem.set('boxcoach.v1', JSON.stringify({ sessions: [], settings: { voiceV2: true, simple: true } }));
+  assert.equal(store.load(st).settings.simple, true);
+});
