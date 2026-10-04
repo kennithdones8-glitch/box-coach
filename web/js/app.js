@@ -34,6 +34,9 @@ import { DEF_MOVES, nextDefCall, judgeDefense, defenseSummary } from './defense.
 import { readCard, addFriend } from './friends.js';
 import { bellsReady, handBellsToPhone, takeBellsBack } from './bells.js';
 import { CoachVoice } from './coachvoice.js';
+import { allWorkouts } from './workouts.js';
+import { cardData, shareCard } from './sharecard.js';
+import { line as voiceLine, hasLine } from './voice.js';
 import { renderCombos, comboHTML } from './views/combos.js';
 import { parseCombo, comboText, comboLabel, comboSpeech, comboKey, punchDigits, pickCombo, judgeCalls, sessionCombos } from './combos.js';
 
@@ -48,7 +51,7 @@ function persist() {
   if (!store.save(state)) toast('Could not save — storage is full or blocked.');
 }
 
-export const APP_VERSION = '2026.10.04-8';
+export const APP_VERSION = '2026.10.04-9';
 
 const app = {
   version: APP_VERSION,
@@ -160,8 +163,40 @@ let trainOptsOpen = false;
 
 const STATUS_WORD = { fresh: 'Fresh', normal: 'Ready to train', strained: 'Go lighter today', deload: 'Deload needed' };
 
+// First open: three cards on what BoxCoach does, before the welcome questions. Once.
+const TOUR = [
+  ['img/1-today.jpg', 'A coach in your pocket', 'Prop your phone up 2–3 m away. It watches every round, calls your combos and talks you through it.'],
+  ['img/3-punch-test.jpg', 'It reads every punch', 'Jab, cross, hooks and uppercuts. A 3-minute test teaches it how you punch.'],
+  ['img/5-progress.jpg', 'See yourself get better', 'Records, badges and progress you can share. No account; everything stays on your phone.'],
+];
+function renderTour() {
+  document.body.classList.add('touring');
+  view.innerHTML = `<section class="tour" aria-label="How BoxCoach works">
+    <div class="tour-track" id="tourTrack" tabindex="0" role="region" aria-label="How it works, swipe for more">${TOUR.map(([img, title, text], i) => `
+      <div class="tour-slide" aria-roledescription="slide" aria-label="${i + 1} of ${TOUR.length}">
+        <img src="${img}" alt="" width="780" height="1560">
+        <h2>${esc(title)}</h2><p>${esc(text)}</p>
+      </div>`).join('')}</div>
+    <div class="tour-dots" aria-hidden="true">${TOUR.map((_, i) => `<span class="${i ? '' : 'on'}"></span>`).join('')}</div>
+    <button class="btn primary block big" id="tourNext" type="button">Next</button>
+    <button class="linkbtn small" id="tourSkip" type="button">Skip</button>
+  </section>`;
+  const track = $('#tourTrack');
+  const at = () => Math.round(track.scrollLeft / track.clientWidth);
+  const done = () => { state.profile.toured = true; persist(); document.body.classList.remove('touring'); renderHome(); };
+  const sync = () => {
+    $$('.tour-dots span').forEach((d, i) => d.classList.toggle('on', i === at()));
+    $('#tourNext').textContent = at() === TOUR.length - 1 ? "Let's go" : 'Next';
+  };
+  track.addEventListener('scroll', () => requestAnimationFrame(sync), { passive: true });
+  $('#tourNext').addEventListener('click', () => (at() >= TOUR.length - 1 ? done() : track.scrollTo({ left: (at() + 1) * track.clientWidth, behavior: 'smooth' })));
+  $('#tourSkip').addEventListener('click', done);
+}
+
 function renderHome() {
   const { profile, sessions } = state;
+  if (!sessions.length && !profile.onboarded && !profile.toured) return renderTour();
+  document.body.classList.remove('touring');
   const ctx = app.model();
   const wk = weekSummary(sessions);
   const plan = currentPlan();
@@ -389,6 +424,12 @@ function renderTrain() {
       <p class="small muted" style="margin:4px 0 8px">I call slip, roll or block every few seconds; the camera checks you did it in time. Block = both gloves up to your forehead.</p>
       <button class="btn ghost block" id="defenseDrill" type="button">Start defense drill</button>
     </section>
+    <section class="card">
+      <div class="card-head"><h2>Workouts</h2><span class="muted small">one tap to start</span></div>
+      <ul class="rows workouts">${allWorkouts(state.profile).map((w) => `
+        <li><span class="row-ico">${w.icon}</span><div class="grow"><b>${esc(w.name)}</b> <span class="muted small">· ${esc(w.level)}</span><br><span class="small muted">${esc(w.detail)}</span></div>
+        <button class="btn primary sm" type="button" data-workout="${w.id}">Start</button></li>`).join('')}</ul>
+    </section>
     <div class="chips">
         <button class="chip" data-preset="fight">Fight sim ${f.rounds}×${fmt(f.roundSec)}</button>
         <button class="chip" data-preset="6x3">6×3</button>
@@ -463,6 +504,10 @@ function renderTrain() {
   });
   $('#punchTest').addEventListener('click', () => app.startPunchTest());
   $('#defenseDrill').addEventListener('click', () => app.startDefense());
+  $$('[data-workout]').forEach((b) => b.addEventListener('click', () => {
+    const w = allWorkouts(state.profile).find((x) => x.id === b.dataset.workout);
+    if (w) startSession({ tracking: state.settings.tracking, combos: state.settings.combos, constraints: !!w.plan.rounds_, focus: null, ...structuredClone(w.plan), workout: w.id });
+  }));
   $$('[data-preset]').forEach((b) => b.addEventListener('click', () => {
     const presets = {
       fight: { type: 'bag', ...f, comboLevel: 3 },
@@ -492,7 +537,7 @@ let live = null;
 async function startSession(plan) {
   if (live) return;
   audio.unlockAudio();
-  audio.setVoice(state.settings.voice);
+  audio.setVoice(state.settings.voice, state.settings.voiceName);
   let tracking = plan.tracking;
   if (tracking === 'motion') {
     try {
@@ -554,6 +599,7 @@ async function startSession(plan) {
       onCue: (key, text) => {
         if (!state.settings.cues || live?.plan.test || live?.plan.defense) return; // drill calls need a clear voice
         live?.coach?.cued(key, performance.now()); // watch for the fix, to praise it
+        if (hasLine(key)) text = voiceLine(key); // said a few different ways, like a person
         showCue(text);
         // Reminders never talk over a combo call: skipped while one is being said or due.
         if (live?.nextCallAt && Math.abs(live.nextCallAt - performance.now()) < 2500) return;
@@ -669,7 +715,7 @@ function roundReport(n) {
   // Short: which round, and the one thing to fix (the rest is on the summary afterwards).
   const f = live.formRounds[live.formRounds.length - 1];
   const fix = roundFix(f);
-  return `Round ${n} done.${f && f.frames > 30 ? ` ${fix || 'Good round.'}` : ''}`;
+  return `${voiceLine('roundDone')}${f && f.frames > 30 ? ` ${fix || voiceLine('goodRound')}` : ''}`;
 }
 
 // Rest screen: the round in one glance, readable from across the room.
@@ -710,7 +756,7 @@ function onPhase(phase, round) {
   if (live.tracker) live.tracker.maxFps = phase === 'work' ? null : phase === 'prep' ? 15 : 6;
   if (phase === 'prep') {
     const first = roundPlan(1);
-    if (!quiet) audio.say(`Get ready.${first ? ` Round one: ${CONSTRAINTS[first.constraint].name}.` : live.plan.focus ? ` Focus: ${AREAS[live.plan.focus]}.` : ''}`, { interrupt: true });
+    if (!quiet) audio.say(`${voiceLine('getReady')}${first ? ` Round one: ${CONSTRAINTS[first.constraint].name}.` : live.plan.focus ? ` Focus: ${AREAS[live.plan.focus]}.` : ''}`, { interrupt: true });
     showConstraint(first);
   }
   if (phase !== 'rest') $('#liveRecap').hidden = true;
@@ -747,7 +793,7 @@ function onPhase(phase, round) {
     audio.bell(3);
     live.completedRounds = round;
     closeRound();
-    audio.say('Time! Great work.', { interrupt: true });
+    audio.say(voiceLine('done'), { interrupt: true });
     finishSession();
   }
   updateClock();
@@ -781,7 +827,8 @@ function onTick(phase, secLeft) {
   if (phase === 'work' && live?.coach && !live.timer.paused) {
     const now = performance.now();
     const nearCall = (live.nextCallAt && Math.abs(live.nextCallAt - now) < 2500) || now - (live.lastCallAt || 0) < 3000;
-    const line = live.coachPending ? null : live.coach.tick(now, { seen: live.analyzer?.seen, leftMs: live.timer.remainingMs });
+    const key = live.coachPending ? null : live.coach.tick(now, { seen: live.analyzer?.seen, leftMs: live.timer.remainingMs });
+    const line = key && voiceLine(key);
     // In the gap between calls say it now; otherwise it takes the next call's place.
     if (line && !nearCall) { showCue(line); audio.say(line); } else if (line) live.coachPending = line;
   }
@@ -809,7 +856,7 @@ function scheduleCombos(rp) {
       const move = nextDefCall(live.defPrev ||= []);
       live.defPrev.push(move);
       $('#liveCombo').innerHTML = `<b class="def-call">${DEF_MOVES[move]}!</b>`;
-      audio.say(`${DEF_MOVES[move]}!`, { rate: 1.3, interrupt: true });
+      audio.say(`${DEF_MOVES[move]}!`, { rate: 1.15, interrupt: true });
       live.lastCallAt = performance.now();
       live.nextCallAt = live.lastCallAt + every;
       return;
@@ -839,7 +886,7 @@ function scheduleCombos(rp) {
     if (finisher && finisher.split(/[ ,]+/).some((w) => w.length > 3 && String(text).toLowerCase().includes(w))) finisher = null; // the call already says it
     if (finisher) speech += `, ${finisher}`;
     $('#liveCombo').innerHTML = (tokens ? comboHTML(tokens) : esc(text)) + (finisher ? ` <span class="small">→ ${esc(finisher)}</span>` : '');
-    audio.say(speech, { rate: 1.3, interrupt: true }); // a call you don't hear can't be judged
+    audio.say(speech, { rate: 1.15, interrupt: true }); // a call you don't hear can't be judged
     live.lastCallAt = performance.now();
     live.nextCallAt = live.lastCallAt + every;
     // With the camera on, remember the call so we can check what was actually thrown.
@@ -894,7 +941,7 @@ function scheduleDefense() {
     prev.push(move);
     live.defCalls.push({ t: performance.now(), move });
     $('#liveCombo').innerHTML = `<b class="def-call">${DEF_MOVES[move]}!</b>`;
-    audio.say(`${DEF_MOVES[move]}!`, { rate: 1.3, interrupt: true });
+    audio.say(`${DEF_MOVES[move]}!`, { rate: 1.15, interrupt: true });
     const next = 3500 + Math.random() * 2000;
     if (performance.now() + next < end) live.burstTimers.push(setTimeout(call, next));
   };
@@ -909,13 +956,13 @@ function scheduleBursts() {
       if (!live || live.timer.phase !== 'work') return;
       live.bursting = true;
       $('#liveCombo').textContent = 'BURST! All out!';
-      audio.say('Burst! All out!', { interrupt: true });
+      audio.say(voiceLine('burst'), { interrupt: true });
     }, at));
     live.burstTimers.push(setTimeout(() => {
       if (!live) return;
       live.bursting = false;
       $('#liveCombo').textContent = 'Back to clean technique';
-      audio.say('Back to technique. Hands home.', { interrupt: true });
+      audio.say(voiceLine('backToTech'), { interrupt: true });
     }, at + 10000));
   }
 }
@@ -975,6 +1022,7 @@ function finishSession() {
     benchmark: l.plan.benchmark || undefined,
     test: l.plan.test ? finishTest(l) : undefined,
     spot: l.analyzer?.sig ? { ...l.analyzer.sig } : undefined, // where the camera was
+    workout: l.plan.workout || undefined,
     defense: l.plan.defense && l.defRounds.length ? defenseSummary(l.defRounds) : undefined,
     adjustments: l.adjustments.length ? l.adjustments : undefined,
     rpe: 7, notes: '',
@@ -1104,6 +1152,14 @@ function testsCardHTML() {
 }
 
 const TEST_NAMES = { jab: 'Jabs', cross: 'Crosses', leadHook: 'Lead hooks', rearHook: 'Rear hooks', leadUppercut: 'Lead uppercuts', rearUppercut: 'Rear uppercuts' };
+// The name a session goes by: the punch test, the drill or workout it was, else its type.
+function sessionName(s) {
+  if (s.test) return 'Punch test';
+  if (s.defense) return 'Defense drill';
+  const w = s.workout && allWorkouts(state.profile).find((x) => x.id === s.workout);
+  return w ? w.name : ALL_TYPES[s.type] || s.type;
+}
+
 function testHTML(session) {
   const x = session.test;
   if (!x) return '';
@@ -1159,7 +1215,7 @@ function renderSummary(session) {
   view.innerHTML = `
     <section class="card">
       <div class="eyebrow">Session complete · ${fmt(session.workSec)} of work</div>
-      <h1>${session.test ? 'Punch test' : session.defense ? 'Defense drill' : ALL_TYPES[session.type]}</h1>
+      <h1>${esc(sessionName(session))}</h1>
       ${events.newPRs.length ? `<div class="pr">🏆 New personal record: ${events.newPRs.map(esc).join(', ')}</div>` : ''}
       ${(() => { const nb = newBadges(state.sessions, session, state.profile); return nb.length ? `<div class="pr">🏅 New badge${nb.length > 1 ? 's' : ''}: ${nb.map((b) => `${b.icon} ${esc(b.name)}`).join(' · ')}</div>` : ''; })()}
       ${events.resolved.length ? `<div class="pr">✅ Habit fixed: ${events.resolved.map((k) => esc(INSIGHTS[k].text)).join(' ')}</div>` : ''}
@@ -1179,6 +1235,7 @@ function renderSummary(session) {
         <div class="rpe-scale"><span>Easy</span><span>Max effort</span></div>
         <label>Notes (how you felt, what clicked)<textarea name="notes" rows="3" maxlength="1000"></textarea></label>
         <button class="btn primary block big" type="submit">Save session</button>
+        <button class="btn ghost block" type="button" id="shareSession">📸 Share this session</button>
         <div class="row2" style="margin-top:0">
           <button class="btn ghost" type="button" id="copyReport">Copy report for coach</button>
           <button class="btn ghost" type="button" id="discard">Discard</button>
@@ -1197,6 +1254,10 @@ function renderSummary(session) {
   });
   $('#discard').addEventListener('click', () => {
     if (confirm('Discard this session?')) { pendingSummary = null; location.hash = '#home'; route(); }
+  });
+  $('#shareSession').addEventListener('click', async () => {
+    const r = await shareCard(cardData(session, { name: sessionName(session), unit: state.profile.unit, badges: newBadges(state.sessions, session, state.profile) }));
+    if (r === 'downloaded') toast('Saved the picture. Post it from your photos.');
   });
   $('#copyReport').addEventListener('click', () => {
     readReview(f, session, state);
@@ -1493,7 +1554,7 @@ function renderLog() {
         <button class="row log-item" data-id="${s.id}">
           <span class="row-ico">${TYPE_ICON[s.type] || '•'}</span>
           <div class="log-main">
-            <b>${s.test ? 'Punch test' : s.defense ? 'Defense drill' : ALL_TYPES[s.type] || esc(s.type)}${s.source === 'video' ? ' · video' : ''}</b>
+            <b>${esc(sessionName(s))}${s.source === 'video' ? ' · video' : ''}</b>
             <span>${fmtDate(s.date)} · ${s.durationMin ? `${s.durationMin} min` : `${s.completedRounds ?? 0}/${s.plan?.rounds ?? 0} rds`}${s.punches?.total ? ` · ${s.punches.total} punches` : ''}${s.hits ? ` · ${Object.values(s.hits).reduce((a, b) => a + b, 0)} hits` : ''}${s.rpe ? ` · RPE ${s.rpe}` : ''}</span>
           </div>
           ${s.scores?.overall != null ? `<span class="badge ${scoreClass(s.scores.overall)}">${s.scores.overall}</span>` : '<span class="chev">›</span>'}
@@ -1545,11 +1606,11 @@ function openDetail(id) {
   d.innerHTML = `
     <div class="dialog-body">
       <div class="eyebrow">${fmtDate(s.date)}</div>
-      <h2>${s.test ? 'Punch test' : s.defense ? 'Defense drill' : ALL_TYPES[s.type] || esc(s.type)}</h2>
+      <h2>${esc(sessionName(s))}</h2>
       ${testHTML(s)}
       ${defenseHTML(s)}
       ${sessionDetailHTML(s, s.feedback)}
-      ${s.type in BOXING_TYPES ? '<button class="btn ghost block" data-report>Copy report for coach</button>' : ''}
+      ${s.type in BOXING_TYPES ? '<button class="btn ghost block" data-share>📸 Share this session</button><button class="btn ghost block" data-report>Copy report for coach</button>' : ''}
       <div class="row2">
         <button class="btn danger" data-del>Delete</button>
         <button class="btn primary" data-close>Close</button>
@@ -1557,6 +1618,9 @@ function openDetail(id) {
     </div>`;
   d.querySelector('[data-close]').addEventListener('click', () => d.close());
   d.querySelector('[data-report]')?.addEventListener('click', () => { d.close(); copyReport(s); });
+  d.querySelector('[data-share]')?.addEventListener('click', async () => {
+    if (await shareCard(cardData(s, { name: sessionName(s), unit: state.profile.unit })) === 'downloaded') toast('Saved the picture. Post it from your photos.');
+  });
   d.querySelector('#retest')?.addEventListener('click', () => { d.close(); app.startPunchTest(testProblems(s.test).retest); });
   d.querySelector('[data-del]').addEventListener('click', () => {
     if (!confirm('Delete this session? The coach will recalculate everything.')) return;

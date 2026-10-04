@@ -8,6 +8,8 @@ import { $, $$, esc, shortDate, subnav, subOf, toast, opt, scoreClass, pageHead 
 import { aiKey, aiModel, setAi, AI_MODELS } from '../aicheck.js';
 import { buildBugReport } from '../bugreport.js';
 import { EQUIPMENT } from '../coachme.js';
+import { englishVoices, setVoice, say, unlockAudio } from '../audio.js';
+import { line as voiceLine } from '../voice.js';
 
 const OWN = Object.fromEntries(Object.entries(EQUIPMENT).filter(([k]) => k !== 'none'));
 
@@ -333,6 +335,8 @@ function settings(el, app) {
         </details>
         <details class="set-group"><summary>Voice &amp; camera</summary>
         <label class="switch"><input type="checkbox" name="voice" ${st.voice ? 'checked' : ''}> <span>Voice coaching</span></label>
+        <div class="row2" style="align-items:end"><label>Coach's voice<select name="voiceName"><option value="">Most natural on this phone</option></select></label><button class="btn ghost" type="button" id="voiceTest">Test</button></div>
+        <p class="small muted" style="margin:0">Sounds robotic? On iPhone, download a better voice: Settings → Accessibility → Spoken Content → Voices → English, pick one marked Enhanced or Premium.</p>
         <label>Voice style<select name="voiceStyle">${opt('coach', st.voiceStyle || 'coach', 'Full coach: combos, pushes, praise, defense calls')}${opt('fixes', st.voiceStyle || 'coach', 'Fixes only ("Hands up")')}</select></label>
         <label class="switch"><input type="checkbox" name="cues" ${st.cues ? 'checked' : ''}> <span>Live form cues ("Hands up!")</span></label>
         <label class="switch"><input type="checkbox" name="combos" ${st.combos ? 'checked' : ''}> <span>Call out combos (always on with the full coach)</span></label>
@@ -386,6 +390,18 @@ function settings(el, app) {
     f.targetWeight.value = f.unit.value === 'kg' ? (lb / 2.20462).toFixed(1) : lb;
   });
   f.sensitivity.addEventListener('input', () => { $('#sensOut').textContent = f.sensitivity.value; });
+  // Voices load late on some phones: fill the list now and again when they arrive.
+  const fillVoices = () => {
+    const list = englishVoices();
+    f.voiceName.innerHTML = `<option value="">Most natural on this phone${list[0] ? ` (${esc(list[0].name)})` : ''}</option>${list.map((v) => `<option value="${esc(v.name)}" ${v.name === st.voiceName ? 'selected' : ''}>${esc(v.name)}</option>`).join('')}`;
+  };
+  fillVoices();
+  globalThis.speechSynthesis?.addEventListener?.('voiceschanged', fillVoices, { once: true });
+  $('#voiceTest', el).addEventListener('click', () => {
+    unlockAudio();
+    setVoice(true, f.voiceName.value);
+    say(`${voiceLine('getReady')} Jab, cross, hook. ${voiceLine('guard')}`, { interrupt: true });
+  });
   f.addEventListener('submit', (e) => {
     e.preventDefault();
     // Switching lb ⇄ kg converts what's logged, not just the label.
@@ -407,7 +423,7 @@ function settings(el, app) {
     // Never asked and nothing ticked: leave it unset, so the plan stays as it was.
     const own = [...f.querySelectorAll('[name=own]:checked')].map((x) => x.value);
     if (own.length || profile.equipment) app.state.profile.equipment = own;
-    app.state.settings = { ...st, simple: f.simple.checked, voice: f.voice.checked, voiceStyle: f.voiceStyle.value, cues: f.cues.checked, combos: f.voiceStyle.value === 'coach' || f.combos.checked, comboInterval: +f.comboInterval.value };
+    app.state.settings = { ...st, simple: f.simple.checked, voice: f.voice.checked, voiceName: f.voiceName.value, voiceStyle: f.voiceStyle.value, cues: f.cues.checked, combos: f.voiceStyle.value === 'coach' || f.combos.checked, comboInterval: +f.comboInterval.value };
     app.rebuildPlan();
     app.persist();
     toast('Saved.');

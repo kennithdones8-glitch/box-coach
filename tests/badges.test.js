@@ -28,3 +28,14 @@ test('badges are earned from the log, with the date, and the summary shows only 
   assert.ok(t.find((x) => x.id === 'tested').earned);
   assert.equal(t.find((x) => x.id === 'punches1000').have, 300);
 });
+
+test('share card: the session in four big numbers, with its name and new badges', async () => {
+  const { cardData } = await import('../web/js/sharecard.js');
+  const d = cardData({ date: '2026-10-04T18:00:00Z', type: 'shadow', completedRounds: 6, workSec: 1080, punches: { total: 1240 }, form: { guard: 88, speed: 3.9 } },
+    { name: 'Head movement', unit: 'lb', badges: [{ icon: '👊', name: '10,000 punches' }] });
+  assert.equal(d.title, 'Head movement');
+  assert.deepEqual(d.stats.map((x) => x[1]), ['rounds', 'punches', 'per minute', 'hands up']);
+  assert.deepEqual(d.stats[1], ['1,240', 'punches']);
+  assert.equal(d.sub, '18 min of work');
+  assert.deepEqual(d.badges, ['👊 10,000 punches']);
+});
