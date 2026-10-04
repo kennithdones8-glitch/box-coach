@@ -1,7 +1,7 @@
 // What the coach says, in a few different ways each, so it sounds like a person and not a
 // recording on repeat. line(key) picks one, never the same as last time for that key.
 
-const LINES = {
+export const LINES = {
   // Form cues (keys from FormAnalyzer).
   guard: ['Hands up.', 'Get those hands up.', 'Chin down, hands up.', 'Hands back to your face.', 'Guard up.'],
   rearDrop: ['Keep that back hand home.', 'Back hand stays on your chin.', "Don't drop the back hand."],

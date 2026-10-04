@@ -384,13 +384,13 @@ export function suggestWorkout(history, mem, profile = {}, now = new Date()) {
 // ---------------------------------------------------------------------------
 // Combo caller
 
-const COMBOS = {
+export const COMBOS = {
   1: ['1', '1, 1', '1, 2', '2', '1, 2, 1', '1, 1, 2', 'Double jab, step back'],
   2: ['1, 2, 3', '1, 2, 3, 2', '2, 3, 2', '1, 6, 3, 2', '3, 2', '1, 2, slip, 2', '5, 2', '1, 1, 2, 3'],
   3: ['1, 2, 3, 2, pivot', '1, 2, 5, 2, 3', '3, 3, 2', '2, 3, 6, 3', '1, 2, roll, 3, 2', '1, 6, 3, 2, slip slip', '4, 3, 2', 'Slip, 2, 3, 2, step out'],
 };
 
-const FOCUS_ADDONS = {
+export const FOCUS_ADDONS = {
   guard: ['hands home', 'reset your guard'],
   footwork: ['step out', 'pivot', 'circle away'],
   head: ['slip', 'roll', 'slip, slip'],

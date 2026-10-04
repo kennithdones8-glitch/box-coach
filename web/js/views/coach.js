@@ -8,7 +8,7 @@ import { $, $$, esc, shortDate, subnav, subOf, toast, opt, scoreClass, pageHead 
 import { aiKey, aiModel, setAi, AI_MODELS } from '../aicheck.js';
 import { buildBugReport } from '../bugreport.js';
 import { EQUIPMENT } from '../coachme.js';
-import { englishVoices, setVoice, say, unlockAudio } from '../audio.js';
+import { englishVoices, setVoice, say, unlockAudio, loadVoicePack } from '../audio.js';
 import { line as voiceLine } from '../voice.js';
 
 const OWN = Object.fromEntries(Object.entries(EQUIPMENT).filter(([k]) => k !== 'none'));
@@ -335,8 +335,7 @@ function settings(el, app) {
         </details>
         <details class="set-group"><summary>Voice &amp; camera</summary>
         <label class="switch"><input type="checkbox" name="voice" ${st.voice ? 'checked' : ''}> <span>Voice coaching</span></label>
-        <div class="row2" style="align-items:end"><label>Coach's voice<select name="voiceName"><option value="">Most natural on this phone</option></select></label><button class="btn ghost" type="button" id="voiceTest">Test</button></div>
-        <p class="small muted" style="margin:0">Sounds robotic? On iPhone, download a better voice: Settings → Accessibility → Spoken Content → Voices → English, pick one marked Enhanced or Premium.</p>
+        <div class="row2" style="align-items:end"><label>Coach's voice<select name="voiceName"><option value="">BoxCoach coach (recorded)</option></select></label><button class="btn ghost" type="button" id="voiceTest">Test</button></div>
         <label>Voice style<select name="voiceStyle">${opt('coach', st.voiceStyle || 'coach', 'Full coach: combos, pushes, praise, defense calls')}${opt('fixes', st.voiceStyle || 'coach', 'Fixes only ("Hands up")')}</select></label>
         <label class="switch"><input type="checkbox" name="cues" ${st.cues ? 'checked' : ''}> <span>Live form cues ("Hands up!")</span></label>
         <label class="switch"><input type="checkbox" name="combos" ${st.combos ? 'checked' : ''}> <span>Call out combos (always on with the full coach)</span></label>
@@ -393,14 +392,15 @@ function settings(el, app) {
   // Voices load late on some phones: fill the list now and again when they arrive.
   const fillVoices = () => {
     const list = englishVoices();
-    f.voiceName.innerHTML = `<option value="">Most natural on this phone${list[0] ? ` (${esc(list[0].name)})` : ''}</option>${list.map((v) => `<option value="${esc(v.name)}" ${v.name === st.voiceName ? 'selected' : ''}>${esc(v.name)}</option>`).join('')}`;
+    f.voiceName.innerHTML = `<option value="">BoxCoach coach (recorded)</option><option value="device" ${st.voiceName === 'device' ? 'selected' : ''}>Phone's best voice${list[0] ? ` (${esc(list[0].name)})` : ''}</option>${list.map((v) => `<option value="${esc(v.name)}" ${v.name === st.voiceName ? 'selected' : ''}>Phone: ${esc(v.name)}</option>`).join('')}`;
   };
   fillVoices();
   globalThis.speechSynthesis?.addEventListener?.('voiceschanged', fillVoices, { once: true });
-  $('#voiceTest', el).addEventListener('click', () => {
+  $('#voiceTest', el).addEventListener('click', async () => {
     unlockAudio();
     setVoice(true, f.voiceName.value);
-    say(`${voiceLine('getReady')} Jab, cross, hook. ${voiceLine('guard')}`, { interrupt: true });
+    await loadVoicePack();
+    say(`${voiceLine('getReady')} jab, cross, hook. ${voiceLine('guard')}`, { interrupt: true });
   });
   f.addEventListener('submit', (e) => {
     e.preventDefault();
