@@ -5,6 +5,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#e11d2e">
   <meta name="description" content="A boxing coach in your phone: counts and reads your punches with the camera, coaches your form, and builds each session from what it sees. Free, no account, video stays on your phone.">
+  <meta property="og:title" content="BoxCoach: a boxing coach in your phone">
+  <meta property="og:description" content="Counts and reads your punches with the camera, coaches your form, and builds each session from what it sees. Free, no account, video stays on your phone.">
+  <meta property="og:image" content="https://kennithdones8-glitch.github.io/box-coach/img/og.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:url" content="https://kennithdones8-glitch.github.io/box-coach/about.html">
+  <meta property="og:type" content="website">
+  <meta name="twitter:card" content="summary_large_image">
   <title>BoxCoach</title>
   <link rel="icon" href="icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="icon-192.png">
@@ -27,6 +35,10 @@
     li { margin: 4px 0; }
     .muted { color: var(--muted); font-size: 0.9rem; }
     b { color: var(--ink); }
+    .shots { display: flex; gap: 12px; overflow-x: auto; scroll-snap-type: x mandatory; margin: 16px -16px 0; padding: 4px 16px 10px; }
+    .shots figure { flex: 0 0 62%; max-width: 240px; margin: 0; scroll-snap-align: center; }
+    .shots img { width: 100%; height: auto; border-radius: 22px; border: 5px solid #111; display: block; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2); }
+    .shots figcaption { font-size: 0.85rem; color: var(--ink-2); text-align: center; margin-top: 8px; }
   </style>
 </head>
 <body>
@@ -38,6 +50,12 @@
       <a class="open" href="./">Open BoxCoach</a>
     </div>
 
+    <div class="shots" aria-label="Screenshots">
+      <figure><img src="img/1-today.jpg" alt="Today: your coach's plan for the day" loading="lazy" width="780" height="1560"><figcaption>Your plan for today</figcaption></figure>
+      <figure><img src="img/3-punch-test.jpg" alt="Punch test result: what the camera read right" loading="lazy" width="780" height="1560"><figcaption>It learns how you punch</figcaption></figure>
+      <figure><img src="img/5-progress.jpg" alt="Progress: records, badges and friends" loading="lazy" width="780" height="1560"><figcaption>Records, badges, friends</figcaption></figure>
+    </div>
+
     <section>
       <h2>What it does</h2>
       <ul>
@@ -46,6 +64,8 @@
         <li><b>Builds your session</b>: tap Coach me, say how long you have, and it plans the rounds from what it has seen you do.</li>
         <li><b>Shows your progress</b>: guard, output, punch mix and habits over weeks.</li>
         <li><b>Learns you</b>: a 3-minute punch test teaches it how your punches look from your camera spot.</li>
+        <li><b>Defense drills</b>: it calls slip, roll or block and checks you did it.</li>
+        <li><b>Train with friends</b>: share your stats and see each other side by side.</li>
       </ul>
     </section>
 

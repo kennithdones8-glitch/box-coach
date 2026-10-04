@@ -8,6 +8,14 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="BoxCoach">
+  <meta property="og:title" content="BoxCoach: a boxing coach in your phone">
+  <meta property="og:description" content="Counts and reads your punches with the camera, coaches your form, and builds each session from what it sees. Free, no account, video stays on your phone.">
+  <meta property="og:image" content="https://kennithdones8-glitch.github.io/box-coach/img/og.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:url" content="https://kennithdones8-glitch.github.io/box-coach/">
+  <meta property="og:type" content="website">
+  <meta name="twitter:card" content="summary_large_image">
   <title>BoxCoach</title>
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icon.svg" type="image/svg+xml">
@@ -79,6 +87,7 @@
     <div id="liveConstraint" class="constraint" hidden></div>
     <div id="liveCombo" class="combo"></div>
     <div id="liveCue" class="cue" aria-live="polite"></div>
+    <div id="liveRecap" class="live-recap" hidden></div>
     <div class="live-stats">
       <div><b id="livePunches">0</b><span>punches</span></div>
       <div><b id="livePpm">–</b><span>per min</span></div>

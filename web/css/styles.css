@@ -544,7 +544,9 @@ a.chip { text-decoration: none; color: var(--ink); }
 .rowbtn span:not(.chev) { grid-column: 1; font-size: 0.82rem; color: var(--muted); }
 .rowbtn .chev { grid-column: 2; grid-row: 1 / 3; align-self: center; font-size: 1.3rem; color: var(--muted); }
 .ready-row .linkbtn { margin-left: auto; align-self: flex-start; }
-.dnt { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 8px 0; }
+.dnt { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; margin: 8px 0; }
+.dnt > div { min-width: 0; overflow-wrap: anywhere; }
+@media (max-width: 340px) { .dnt { grid-template-columns: minmax(0, 1fr); } }
 .dnt > div { background: var(--surface-2); border-radius: var(--radius-sm); padding: 8px 10px; font-size: 0.82rem; }
 .dnt > div:first-child { background: var(--good-bg); }
 .dnt > div:last-child { background: var(--bad-bg); }
@@ -602,3 +604,23 @@ details.card-lite > summary::-webkit-details-marker { display: none; }
 /* Live: how much of this round (or rest) is left, readable from across the room */
 .round-bar { width: 100%; height: 6px; border-radius: 3px; background: rgba(255, 255, 255, 0.15); overflow: hidden; margin: 4px 0 10px; }
 .round-bar > div { height: 100%; width: 100%; background: currentColor; transition: width 0.25s linear; }
+/* Live: round recap during the rest */
+.live-recap { width: 100%; text-align: center; background: rgba(255, 255, 255, 0.08); border-radius: 18px; padding: 14px 12px; margin: 6px 0; }
+.live-recap .eyebrow { color: rgba(255, 255, 255, 0.7); }
+.recap-big { font-size: clamp(3.5rem, 20vw, 6rem); font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; }
+.recap-big span { display: block; font-size: 0.85rem; font-weight: 600; color: rgba(255, 255, 255, 0.75); margin-top: 4px; }
+.recap-row { display: flex; justify-content: center; gap: 22px; margin-top: 10px; }
+.recap-row b { display: block; font-size: 1.5rem; font-weight: 800; }
+.recap-row span { font-size: 0.75rem; color: rgba(255, 255, 255, 0.7); }
+.recap-fix { margin: 12px 0 0; font-size: 1.15rem; font-weight: 800; }
+.recap-fix.good { color: #7ee2a8; }
+.live[data-phase="rest"] .live-stats, .live[data-phase="rest"] .tap-count { display: none; }
+@media (max-width: 360px) { .card-head { flex-wrap: wrap; } }
+/* Short phones (SE, mini): camera and clock size to the height so the controls stay on screen. */
+@media (max-height: 760px) {
+  .live { gap: 6px; }
+  .live .cam { width: auto; height: 27vh; max-width: 100%; }
+  .live .clock { font-size: min(33vw, 13vh); }
+  .live .constraint p { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+}
+@media (max-height: 600px) { .live .cam { height: 23vh; } .live .clock { font-size: min(30vw, 12vh); } }
