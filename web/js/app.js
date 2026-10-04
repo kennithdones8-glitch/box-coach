@@ -34,6 +34,7 @@ import { DEF_MOVES, nextDefCall, judgeDefense, defenseSummary } from './defense.
 import { readCard, addFriend } from './friends.js';
 import { bellsReady, handBellsToPhone, takeBellsBack } from './bells.js';
 import { CoachVoice } from './coachvoice.js';
+import { line as voiceLine, hasLine } from './voice.js';
 import { renderCombos, comboHTML } from './views/combos.js';
 import { parseCombo, comboText, comboLabel, comboSpeech, comboKey, punchDigits, pickCombo, judgeCalls, sessionCombos } from './combos.js';
 
@@ -492,7 +493,7 @@ let live = null;
 async function startSession(plan) {
   if (live) return;
   audio.unlockAudio();
-  audio.setVoice(state.settings.voice);
+  audio.setVoice(state.settings.voice, state.settings.voiceName);
   let tracking = plan.tracking;
   if (tracking === 'motion') {
     try {
@@ -554,6 +555,7 @@ async function startSession(plan) {
       onCue: (key, text) => {
         if (!state.settings.cues || live?.plan.test || live?.plan.defense) return; // drill calls need a clear voice
         live?.coach?.cued(key, performance.now()); // watch for the fix, to praise it
+        if (hasLine(key)) text = voiceLine(key); // said a few different ways, like a person
         showCue(text);
         // Reminders never talk over a combo call: skipped while one is being said or due.
         if (live?.nextCallAt && Math.abs(live.nextCallAt - performance.now()) < 2500) return;
@@ -669,7 +671,7 @@ function roundReport(n) {
   // Short: which round, and the one thing to fix (the rest is on the summary afterwards).
   const f = live.formRounds[live.formRounds.length - 1];
   const fix = roundFix(f);
-  return `Round ${n} done.${f && f.frames > 30 ? ` ${fix || 'Good round.'}` : ''}`;
+  return `${voiceLine('roundDone')}${f && f.frames > 30 ? ` ${fix || voiceLine('goodRound')}` : ''}`;
 }
 
 // Rest screen: the round in one glance, readable from across the room.
@@ -710,7 +712,7 @@ function onPhase(phase, round) {
   if (live.tracker) live.tracker.maxFps = phase === 'work' ? null : phase === 'prep' ? 15 : 6;
   if (phase === 'prep') {
     const first = roundPlan(1);
-    if (!quiet) audio.say(`Get ready.${first ? ` Round one: ${CONSTRAINTS[first.constraint].name}.` : live.plan.focus ? ` Focus: ${AREAS[live.plan.focus]}.` : ''}`, { interrupt: true });
+    if (!quiet) audio.say(`${voiceLine('getReady')}${first ? ` Round one: ${CONSTRAINTS[first.constraint].name}.` : live.plan.focus ? ` Focus: ${AREAS[live.plan.focus]}.` : ''}`, { interrupt: true });
     showConstraint(first);
   }
   if (phase !== 'rest') $('#liveRecap').hidden = true;
@@ -747,7 +749,7 @@ function onPhase(phase, round) {
     audio.bell(3);
     live.completedRounds = round;
     closeRound();
-    audio.say('Time! Great work.', { interrupt: true });
+    audio.say(voiceLine('done'), { interrupt: true });
     finishSession();
   }
   updateClock();
@@ -781,7 +783,8 @@ function onTick(phase, secLeft) {
   if (phase === 'work' && live?.coach && !live.timer.paused) {
     const now = performance.now();
     const nearCall = (live.nextCallAt && Math.abs(live.nextCallAt - now) < 2500) || now - (live.lastCallAt || 0) < 3000;
-    const line = live.coachPending ? null : live.coach.tick(now, { seen: live.analyzer?.seen, leftMs: live.timer.remainingMs });
+    const key = live.coachPending ? null : live.coach.tick(now, { seen: live.analyzer?.seen, leftMs: live.timer.remainingMs });
+    const line = key && voiceLine(key);
     // In the gap between calls say it now; otherwise it takes the next call's place.
     if (line && !nearCall) { showCue(line); audio.say(line); } else if (line) live.coachPending = line;
   }
@@ -809,7 +812,7 @@ function scheduleCombos(rp) {
       const move = nextDefCall(live.defPrev ||= []);
       live.defPrev.push(move);
       $('#liveCombo').innerHTML = `<b class="def-call">${DEF_MOVES[move]}!</b>`;
-      audio.say(`${DEF_MOVES[move]}!`, { rate: 1.3, interrupt: true });
+      audio.say(`${DEF_MOVES[move]}!`, { rate: 1.15, interrupt: true });
       live.lastCallAt = performance.now();
       live.nextCallAt = live.lastCallAt + every;
       return;
@@ -839,7 +842,7 @@ function scheduleCombos(rp) {
     if (finisher && finisher.split(/[ ,]+/).some((w) => w.length > 3 && String(text).toLowerCase().includes(w))) finisher = null; // the call already says it
     if (finisher) speech += `, ${finisher}`;
     $('#liveCombo').innerHTML = (tokens ? comboHTML(tokens) : esc(text)) + (finisher ? ` <span class="small">→ ${esc(finisher)}</span>` : '');
-    audio.say(speech, { rate: 1.3, interrupt: true }); // a call you don't hear can't be judged
+    audio.say(speech, { rate: 1.15, interrupt: true }); // a call you don't hear can't be judged
     live.lastCallAt = performance.now();
     live.nextCallAt = live.lastCallAt + every;
     // With the camera on, remember the call so we can check what was actually thrown.
@@ -894,7 +897,7 @@ function scheduleDefense() {
     prev.push(move);
     live.defCalls.push({ t: performance.now(), move });
     $('#liveCombo').innerHTML = `<b class="def-call">${DEF_MOVES[move]}!</b>`;
-    audio.say(`${DEF_MOVES[move]}!`, { rate: 1.3, interrupt: true });
+    audio.say(`${DEF_MOVES[move]}!`, { rate: 1.15, interrupt: true });
     const next = 3500 + Math.random() * 2000;
     if (performance.now() + next < end) live.burstTimers.push(setTimeout(call, next));
   };
@@ -909,13 +912,13 @@ function scheduleBursts() {
       if (!live || live.timer.phase !== 'work') return;
       live.bursting = true;
       $('#liveCombo').textContent = 'BURST! All out!';
-      audio.say('Burst! All out!', { interrupt: true });
+      audio.say(voiceLine('burst'), { interrupt: true });
     }, at));
     live.burstTimers.push(setTimeout(() => {
       if (!live) return;
       live.bursting = false;
       $('#liveCombo').textContent = 'Back to clean technique';
-      audio.say('Back to technique. Hands home.', { interrupt: true });
+      audio.say(voiceLine('backToTech'), { interrupt: true });
     }, at + 10000));
   }
 }

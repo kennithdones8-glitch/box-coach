@@ -72,17 +72,42 @@ export function tick() {
 }
 
 let voiceOn = true;
-export function setVoice(on) {
+let wanted = ''; // a voice name picked in Settings ('' = the most natural one on this phone)
+export function setVoice(on, name = '') {
   voiceOn = on;
+  wanted = name || '';
 }
 
-export function say(text, { interrupt = false, rate = 1.1 } = {}) {
-  if (!voiceOn || !('speechSynthesis' in window)) return;
+// The phone's English voices, most natural first: iPhone "Premium"/"Enhanced" downloads and the
+// neural voices on Android/Chrome sound like a person; the basic ones sound like a robot.
+export function englishVoices() {
+  const all = globalThis.speechSynthesis?.getVoices?.() || [];
+  return all.filter((v) => /^en[-_]/i.test(v.lang)).sort((a, b) => voiceScore(b) - voiceScore(a));
+}
+export function voiceScore(v) {
+  const n = v.name;
+  return (/premium/i.test(n) ? 6 : 0) + (/enhanced|neural|natural/i.test(n) ? 5 : 0) + (/siri/i.test(n) ? 4 : 0)
+    + (/google/i.test(n) ? 3 : 0) + (/samantha|daniel|karen|moira|alex|ava|evan|zoe|serena/i.test(n) ? 1 : 0)
+    + (v.localService ? 0.5 : 0) + (/en[-_](US|GB)/i.test(v.lang) ? 0.3 : 0) - (/compact|eloquence|novelty|whisper|bells|bubbles|zarvox|trinoids|albert|bad news|good news|jester|organ|superstar|wobble|cellos/i.test(n) ? 10 : 0);
+}
+let chosen = null;
+function pickVoice() {
+  const list = englishVoices();
+  chosen = (wanted && list.find((v) => v.name === wanted)) || list[0] || null;
+}
+globalThis.speechSynthesis?.addEventListener?.('voiceschanged', pickVoice);
+
+// rate 1 = calm, talking pace; combo calls go a little quicker.
+export function say(text, { interrupt = false, rate = 1 } = {}) {
+  if (!voiceOn || !text || !('speechSynthesis' in window)) return;
   const s = window.speechSynthesis;
   if (interrupt) s.cancel();
   else if (s.speaking || s.pending) return; // don't queue up stale cues
+  if (!chosen || (wanted && chosen.name !== wanted)) pickVoice();
   const u = new SpeechSynthesisUtterance(text);
+  if (chosen) { u.voice = chosen; u.lang = chosen.lang; }
   u.rate = rate;
+  u.pitch = 1;
   s.speak(u);
 }
 
