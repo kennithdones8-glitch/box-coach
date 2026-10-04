@@ -47,7 +47,7 @@ function persist() {
   if (!store.save(state)) toast('Could not save — storage is full or blocked.');
 }
 
-export const APP_VERSION = '2026.10.04-5';
+export const APP_VERSION = '2026.10.04-6';
 
 const app = {
   version: APP_VERSION,
@@ -508,6 +508,7 @@ async function startSession(plan) {
   $('#tapCount').hidden = tracking !== 'none' || !(plan.type in BOXING_TYPES);
   $('#liveCombo').textContent = '';
   $('#liveCue').textContent = '';
+  $('#liveRecap').hidden = true;
   $('#liveConstraint').hidden = true;
   $('#livePause').hidden = false;
   $('#livePunches').textContent = '0';
@@ -646,22 +647,41 @@ function closeRound() {
   $('#liveCombo').textContent = '';
 }
 
+// The one thing to fix from a round (or null), worst first.
+function roundFix(f) {
+  if (!f || f.frames <= 30) return null;
+  const issues = [];
+  if (f.guard != null && f.guard < TARGETS.guard) issues.push([TARGETS.guard - f.guard, 'Hands up.']);
+  if (f.crossedPct >= 5) issues.push([20, "Don't cross your feet."]);
+  if (f.stance != null && f.stance < TARGETS.stance) issues.push([TARGETS.stance - f.stance, 'Hold your stance.']);
+  if (f.footwork != null && f.footwork < 30) issues.push([15, 'Move your feet.']);
+  if (f.head != null && f.head < 25) issues.push([12, 'Move your head.']);
+  issues.sort((a, b) => b[0] - a[0]);
+  return issues[0]?.[1] || null;
+}
+
 function roundReport(n) {
-  const punches = live.perRound[live.perRound.length - 1];
-  const f = live.formRounds[live.formRounds.length - 1];
   // Short: which round, and the one thing to fix (the rest is on the summary afterwards).
-  const bits = [`Round ${n} done.`];
-  if (f && f.frames > 30) {
-    const issues = [];
-    if (f.guard != null && f.guard < TARGETS.guard) issues.push([TARGETS.guard - f.guard, 'Hands up.']);
-    if (f.crossedPct >= 5) issues.push([20, "Don't cross your feet."]);
-    if (f.stance != null && f.stance < TARGETS.stance) issues.push([TARGETS.stance - f.stance, 'Hold your stance.']);
-    if (f.footwork != null && f.footwork < 30) issues.push([15, 'Move your feet.']);
-    if (f.head != null && f.head < 25) issues.push([12, 'Move your head.']);
-    issues.sort((a, b) => b[0] - a[0]);
-    bits.push(issues.length ? issues[0][1] : 'Good round.');
-  }
-  return bits.join(' ');
+  const f = live.formRounds[live.formRounds.length - 1];
+  const fix = roundFix(f);
+  return `Round ${n} done.${f && f.frames > 30 ? ` ${fix || 'Good round.'}` : ''}`;
+}
+
+// Rest screen: the round in one glance, readable from across the room.
+function showRecap(n) {
+  const el = $('#liveRecap');
+  const punches = live.perRound.at(-1) ?? 0;
+  const f = live.formRounds.at(-1);
+  const prev = live.perRound.at(-2);
+  const workMin = (live.timer.workMs - (live.roundWorkStart || 0)) / 60000;
+  const ppm = workMin > 0.15 ? Math.round(punches / workMin) : null;
+  const cell = (v, label) => (v == null ? '' : `<div><b>${v}</b><span>${label}</span></div>`);
+  const fix = roundFix(f);
+  el.innerHTML = `<div class="eyebrow">Round ${n} of ${live.timer.rounds}</div>
+    ${live.tracking !== 'none' || punches ? `<div class="recap-big">${punches}<span>punches${prev != null && prev > 0 ? ` · ${punches >= prev ? '▲' : '▼'} ${Math.abs(punches - prev)} on last round` : ''}</span></div>` : ''}
+    <div class="recap-row">${cell(punches ? ppm : null, 'per min')}${cell(f?.frames > 30 && f.guard != null ? `${f.guard}%` : null, 'hands up')}${cell(f?.speed != null ? speedText(f.speed, state.profile.unit) : null, 'hand speed')}</div>
+    ${f?.frames > 30 ? `<p class="recap-fix ${fix ? '' : 'good'}">${fix ? `Next round: ${esc(fix.replace(/\.$/, '').toLowerCase())}` : '✓ Good round. Same again.'}</p>` : ''}`;
+  el.hidden = false;
 }
 
 // Back from a locked screen: say where the session is now.
@@ -688,11 +708,13 @@ function onPhase(phase, round) {
     if (!quiet) audio.say(`Get ready.${first ? ` Round one: ${CONSTRAINTS[first.constraint].name}.` : live.plan.focus ? ` Focus: ${AREAS[live.plan.focus]}.` : ''}`, { interrupt: true });
     showConstraint(first);
   }
+  if (phase !== 'rest') $('#liveRecap').hidden = true;
   if (phase === 'work') {
     // No rest between rounds: close the last one here (the rest phase normally does).
     if (round > 1 && live.perRound.length < round - 1) { live.completedRounds = round - 1; closeRound(); }
     if (!quiet) { audio.bell(1); audio.vibrate([200]); }
     live.roundPunches = 0;
+    live.roundWorkStart = t.workMs; // for this round's punches per minute
     live.analyzer?.startRound();
     const rp = roundPlan(round);
     showConstraint(rp);
@@ -709,7 +731,8 @@ function onPhase(phase, round) {
     let msg = roundReport(round);
     const adj = adaptNextRound(round);
     if (adj) msg += ` ${adj}`;
-    showCue(msg);
+    showRecap(round);
+    if (adj) showCue(adj);
     showConstraint(roundPlan(round + 1));
     if (!quiet) setTimeout(() => audio.say(msg, { interrupt: true }), 1500);
   }
