@@ -150,3 +150,37 @@ test('round timer: back from a locked screen, the missed phases are quiet and on
   t._loop();
   assert.equal(wakes.length, 1);
 });
+
+test('lock-screen bells: the round bells still to come, at the right times', async () => {
+  const { RoundTimer, upcomingBells } = await import('../web/js/timer.js');
+  const t = new RoundTimer({ rounds: 3, roundSec: 180, restSec: 60, prepSec: 10 });
+  t._enter('prep'); t._enter('work'); // round 1 has just started
+  t.remainingMs = 100000;
+  const b = upcomingBells(t, 0);
+  assert.deepEqual(b.map((x) => [x.at / 1000, x.title]), [
+    [100, '🔔 Round 1 done'], [160, '🔔 Round 2'], [340, '🔔 Round 2 done'], [400, '🔔 Round 3'], [580, '🔔 Time!']]);
+  t.paused = true;
+  assert.deepEqual(upcomingBells(t, 0), [], 'paused: nothing rings');
+  const noRest = new RoundTimer({ rounds: 2, roundSec: 60, restSec: 0, prepSec: 0 });
+  noRest._enter('work'); noRest.remainingMs = 30000;
+  assert.deepEqual(upcomingBells(noRest, 0).map((x) => [x.at / 1000, x.title]), [[30, '🔔 Round 2'], [90, '🔔 Time!']]);
+});
+
+test('lock-screen bells go to the phone through the native bridge, and come back', async () => {
+  const calls = [];
+  globalThis.Capacitor = { isNativePlatform: () => true, nativePromise: async (plugin, method, opts) => { calls.push([plugin, method, opts]); return { display: 'granted' }; } };
+  try {
+    const { bellsReady, handBellsToPhone, takeBellsBack } = await import('../web/js/bells.js');
+    const { RoundTimer } = await import('../web/js/timer.js');
+    assert.equal(await bellsReady(), true);
+    const t = new RoundTimer({ rounds: 2, roundSec: 60, restSec: 30, prepSec: 0 });
+    t._enter('work'); t.remainingMs = 20000;
+    await handBellsToPhone(t);
+    const sched = calls.find((c) => c[1] === 'schedule');
+    assert.equal(sched[0], 'LocalNotifications');
+    assert.deepEqual(sched[2].notifications.map((n) => n.title), ['🔔 Round 1 done', '🔔 Round 2', '🔔 Time!']);
+    assert.match(sched[2].notifications[0].schedule.at, /^\d{4}-\d{2}-\d{2}T/);
+    await takeBellsBack();
+    assert.equal(calls.at(-1)[1], 'cancel');
+  } finally { delete globalThis.Capacitor; }
+});

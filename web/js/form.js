@@ -260,7 +260,7 @@ function emptyRound() {
     narrow: 0, wide: 0, crossed: 0, bladeOk: 0, bladeFrames: 0, moving: 0, headMoving: 0, headMoves: 0, t0: null, t1: null, sideFrames: 0,
     punches: { jab: 0, cross: 0, leadHook: 0, rearHook: 0, leadUppercut: 0, rearUppercut: 0 },
     returnTimes: [], returnLead: [], returnRear: [], leadPunches: 0, rearDrops: 0,
-    punchLog: [], leftCloser: 0, depthFrames: 0, speeds: [],
+    punchLog: [], leftCloser: 0, depthFrames: 0, speeds: [], defLog: [],
   };
 }
 
@@ -780,7 +780,17 @@ export class FormAnalyzer {
       this.headOut = true;
       this.lastHeadMove = t;
       r.headMoves++;
+      // Which way (for defense drills): sideways is a slip, down is a roll or duck.
+      const dx = rel.x - median(hist.map((q) => q.x)), dy = rel.y - median(hist.map((q) => q.y));
+      r.defLog.push({ t, move: dy > 0.25 && dy > Math.abs(dx) * 0.7 ? 'roll' : 'slip' });
     } else if (this.headOut && headOff < 0.2) this.headOut = false;
+    // Block: both fists raised to the forehead, above the nose and close to the head (a normal
+    // guard holds them at the chin, so it doesn't count).
+    const fistUp = (k) => (image[k]?.visibility ?? 1) >= this.minVis && Math.hypot(I(k).x - n.x, I(k).y - n.y) / torso < 0.5 && I(k).y < n.y - 0.05 * torso;
+    // Head where it usually is: in a roll the head drops below the gloves, which isn't a block.
+    const blocking = headOff < 0.25 && fistUp(LM.L_WR) && fistUp(LM.R_WR);
+    if (blocking && !this.blocking) r.defLog.push({ t, move: 'block' });
+    this.blocking = blocking;
     const headMoving = t - this.lastHeadMove < 2000;
     if (headMoving) r.headMoving++;
     if (r.t0 == null) r.t0 = t;

@@ -35,5 +35,7 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- The camera coach reads your movement on the phone; video is never uploaded. -->
     <uses-permission android:name="android.permission.CAMERA" />
+    <!-- Round bells on time with the screen off (local notifications at exact times). -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
 </manifest>

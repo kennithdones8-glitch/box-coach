@@ -5,6 +5,7 @@ import { fatigueMap, medAnalysis, DIM_NAMES } from '../analysis.js';
 import { BOXING_TYPES, TARGETS, outputPpm, speedText } from '../coach.js';
 import { lineChart } from '../chart.js';
 import { badges } from '../badges.js';
+import { myCard, shareLink, COMPARE } from '../friends.js';
 import { $, $$, esc, shortDate, subnav, subOf, deltaHTML, confDot, scoreClass, toast, pageHead } from '../ui.js';
 import { newId } from '../store.js';
 
@@ -213,6 +214,19 @@ function badgesHTML(state) {
   </section>`;
 }
 
+// You next to the friends whose links you opened (their numbers are from when they shared).
+function friendsHTML(state) {
+  const me = myCard(state);
+  const fr = state.friends.slice(-3).reverse();
+  const val = (c, k) => (c[k] == null ? '–' : k === 'h' ? speedText(c[k], state.profile.unit) : c[k].toLocaleString());
+  return `<section class="card"><div class="card-head"><h2>Friends</h2><button class="linkbtn small" id="shareStats" type="button">Share my stats</button></div>
+    ${fr.length ? `<div class="tbl-wrap"><table class="tbl small"><thead><tr><th class="left"></th><th>You</th>${fr.map((f) => `<th>${esc(f.n)}<br><button class="linkbtn small" data-unfriend="${esc(f.i)}" type="button" aria-label="Remove ${esc(f.n)}">remove</button></th>`).join('')}</tr></thead>
+      <tbody>${COMPARE.map(([label, k]) => `<tr><td class="left">${label}</td><td><b>${val(me, k)}</b></td>${fr.map((f) => `<td>${val(f, k)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>
+      <p class="small muted" style="margin:6px 0 0">Their numbers are from ${fr.map((f) => `${esc(f.n)} on ${f.d ? esc(shortDate(f.d + 'T12:00:00')) : '?'}`).join(', ')}. Ask them to share again for fresh ones.</p>`
+    : '<p class="small muted" style="margin:0">Send your stats to a training partner; when they open the link in BoxCoach you show up side by side. Nothing is uploaded: your numbers travel inside the link.</p>'}
+  </section>`;
+}
+
 function charts(el, app) {
   const state = app.state;
   const box = state.sessions.filter((s) => s.type in BOXING_TYPES && !s.manual).slice(-20);
@@ -236,12 +250,26 @@ function charts(el, app) {
       ${prs.length ? `<div class="prs">${prs.map((p) => `<div><b>${p.value}</b><span>${esc(p.label)}</span><em>${shortDate(p.date)}</em></div>`).join('')}</div>` : '<p class="muted">Records show up after your first session.</p>'}
     </section>
     ${badgesHTML(state)}
+    ${friendsHTML(state)}
     <section class="card"><h3>Overall score</h3><div id="c-overall"></div></section>
     <section class="card"><h3>Punches per minute</h3><div id="c-ppm"></div></section>
     <section class="card"><h3>Guard up %</h3><div id="c-guard"></div></section>
     ${box.some((s) => s.form?.speed != null) ? `<section class="card"><h3>Hand speed (${state.profile.unit === 'kg' ? 'km/h' : 'mph'})</h3><div id="c-speed"></div><p class="small muted" style="margin:6px 0 0">The camera's estimate, from the same spot each time it's a fair comparison.</p></section>` : ''}
     <section class="card"><h3>Stance held %</h3><div id="c-stance"></div></section>
     <section class="card"><h3>Training minutes per week</h3><div id="c-weeks"></div></section>`;
+  $('#shareStats')?.addEventListener('click', async () => {
+    if (!state.profile.shareId) { state.profile.shareId = newId(); app.persist(); }
+    const url = shareLink(myCard(state));
+    try {
+      if (navigator.share) await navigator.share({ title: 'My BoxCoach stats', text: `${state.profile.name || 'My'} boxing this week — open it in BoxCoach to compare:`, url });
+      else { await navigator.clipboard.writeText(url); toast('Link copied. Send it to your training partner.'); }
+    } catch { /* share sheet closed */ }
+  });
+  $$('[data-unfriend]').forEach((b) => b.addEventListener('click', () => {
+    state.friends = state.friends.filter((f) => f.i !== b.dataset.unfriend);
+    app.persist();
+    charts(el, app);
+  }));
   lineChart($('#c-overall'), pts((s) => s.scores?.overall), { max: 100, label: 'Overall score' });
   lineChart($('#c-ppm'), pts((s) => outputPpm(s)), { label: 'Punches per minute' });
   const k = state.profile.unit === 'kg' ? 3.6 : 2.237;
