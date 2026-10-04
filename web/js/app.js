@@ -25,7 +25,7 @@ import { trustedCal } from './calibrate.js';
 import { installErrorLog } from './bugreport.js';
 
 installErrorLog();
-import { addExamples, spotModel } from './personal.js';
+import { addExamples, spotModel, setupNear } from './personal.js';
 import { testPlan, scoreTest, testLabels, testHistory, testProblems } from './punchtest.js';
 import { SetupWatch, SETUP_TEXT } from './camcheck.js';
 import { weeklyRecap } from './recap.js';
@@ -48,7 +48,7 @@ function persist() {
   if (!store.save(state)) toast('Could not save — storage is full or blocked.');
 }
 
-export const APP_VERSION = '2026.10.04-7';
+export const APP_VERSION = '2026.10.04-8';
 
 const app = {
   version: APP_VERSION,
@@ -974,6 +974,7 @@ function finishSession() {
     coach: l.plan.coach ? { ...l.plan.coach } : undefined,
     benchmark: l.plan.benchmark || undefined,
     test: l.plan.test ? finishTest(l) : undefined,
+    spot: l.analyzer?.sig ? { ...l.analyzer.sig } : undefined, // where the camera was
     defense: l.plan.defense && l.defRounds.length ? defenseSummary(l.defRounds) : undefined,
     adjustments: l.adjustments.length ? l.adjustments : undefined,
     rpe: 7, notes: '',
@@ -1119,6 +1120,15 @@ function testHTML(session) {
   </div>`;
 }
 
+// Trained from a camera spot it hasn't learned yet: suggest a quick punch test there.
+function newSpotHTML(session) {
+  if (!session.spot || session.test || session.defense) return '';
+  const known = (state.profile.punchLabels || []).filter((x) => setupNear(x, session.spot)).length;
+  if (known >= 20) return '';
+  return `<div class="pr">📍 New camera spot. A 3-minute punch test from here teaches it how your punches look from this angle.
+    <button class="btn ghost block" id="spotTest" type="button" style="margin-top:8px">Punch test from here</button></div>`;
+}
+
 // Defense drill result: how many of each call you answered in time.
 function defenseHTML(session) {
   const d = session.defense;
@@ -1156,6 +1166,7 @@ function renderSummary(session) {
       ${events.confirmed.length ? `<div class="pr warn">🧠 I'm noticing a pattern: ${events.confirmed.map((k) => esc(INSIGHTS[k].text)).join(' ')}</div>` : ''}
       ${testHTML(session)}
       ${defenseHTML(session)}
+      ${newSpotHTML(session)}
       ${coachedHTML(session)}
       ${sessionDetailHTML(session, fb)}
     </section>
@@ -1178,6 +1189,7 @@ function renderSummary(session) {
   pendingSummary = { session, form: f };
   bindReview(f);
   f.rpe.addEventListener('input', () => { $('#rpeOut').textContent = f.rpe.value; });
+  $('#spotTest')?.addEventListener('click', () => { savePendingSummary(); app.startPunchTest(); });
   // Retest the punches it read badly: this test is saved first, so nothing is lost.
   $('#retest')?.addEventListener('click', () => {
     savePendingSummary();
