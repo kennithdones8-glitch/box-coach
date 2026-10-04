@@ -139,7 +139,7 @@ export function priorities(problems, state) {
   return {
     all, active: live.slice(0, 3), paused: all.filter((p) => paused.has(p.key)),
     congested: live.length > 3,
-    message: live.length > 3 ? `Training congestion detected: ${live.length} active technical priorities may be reducing repetition quality. Focus on the top 3 and pause the rest.` : null,
+    message: live.length > 3 ? `Working on your top 3. The other ${live.length - 3} wait their turn and move up as these improve.` : null,
   };
 }
 

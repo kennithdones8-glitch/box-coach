@@ -462,7 +462,7 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.6); }
 .live-top { width: 100%; display: flex; justify-content: space-between; align-items: center; }
 .live-round { font-weight: 700; font-size: 1.05rem; }
 .phase-pill { background: rgba(255, 255, 255, 0.15); border-radius: 999px; padding: 4px 12px; font-weight: 800; letter-spacing: 0.1em; font-size: 0.78rem; }
-.clock { font-size: clamp(4.5rem, 24vw, 9rem); font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1; letter-spacing: -0.03em; }
+.clock { font-size: clamp(5.5rem, 33vw, 12rem); font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1; letter-spacing: -0.03em; }
 .cam { position: relative; width: 100%; max-width: 480px; aspect-ratio: 4 / 3; border-radius: 14px; overflow: hidden; background: #000; flex: none; }
 .cam video, .cam canvas { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 .mirror { transform: scaleX(-1); }
@@ -589,3 +589,14 @@ details.card-lite > summary::-webkit-details-marker { display: none; }
 .next-badges li { align-items: flex-start; }
 .next-badges .bar { margin-top: 6px; }
 .def-call { font-size: 2.2rem; letter-spacing: 0.02em; }
+/* Settings: folding groups */
+.set-group { border-top: 1px solid var(--line); padding: 4px 0; }
+.set-group:first-of-type { border-top: 0; }
+.set-group > summary { cursor: pointer; font-weight: 800; font-size: 1.05rem; padding: 10px 0; list-style: none; display: flex; justify-content: space-between; }
+.set-group > summary::after { content: '›'; color: var(--muted); transition: transform 0.15s; }
+.set-group[open] > summary::after { transform: rotate(90deg); }
+.set-group > summary::-webkit-details-marker { display: none; }
+.set-group > :not(summary) + * { margin-top: 12px; }
+/* Live: how much of this round (or rest) is left, readable from across the room */
+.round-bar { width: 100%; height: 6px; border-radius: 3px; background: rgba(255, 255, 255, 0.15); overflow: hidden; margin: 4px 0 10px; }
+.round-bar > div { height: 100%; width: 100%; background: currentColor; transition: width 0.25s linear; }

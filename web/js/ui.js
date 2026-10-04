@@ -54,4 +54,4 @@ export function confDot(c) {
 }
 
 // Progress tab sections (shared by the history list and the boxer views).
-export const PROGRESS_SUBS = [['history', 'History'], ['skills', 'Skills'], ['analysis', 'Analysis'], ['style', 'Style'], ['charts', 'Charts'], ['timeline', 'Timeline']];
+export const PROGRESS_SUBS = [['history', 'History'], ['charts', 'Stats'], ['skills', 'Skills'], ['analysis', 'Analysis'], ['style', 'Style'], ['timeline', 'Timeline']];

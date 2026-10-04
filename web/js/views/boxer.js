@@ -18,7 +18,7 @@ export function renderBoxer(view, app) {
   const ctx = app.model();
   const body = { skills, analysis, style, timeline, charts }[sub] || skills;
   const measured = ctx.skills.filter((x) => x.confidence !== 'none').length;
-  view.innerHTML = `${pageHead('Your boxing', { eyebrow: `${measured} of 18 skills measured${ctx.skills.length ? ` · ${esc(ctx.phase.name)}` : ''}`, nav: subnav('progress', PROGRESS_SUBS, sub) })}<div id="boxerBody"></div>`;
+  view.innerHTML = `${pageHead('Progress', { eyebrow: `${app.state.sessions.length} sessions · ${measured} of 18 skills measured`, nav: subnav('progress', PROGRESS_SUBS, sub) })}<div id="boxerBody"></div>`;
   body($('#boxerBody'), app, ctx);
 }
 
