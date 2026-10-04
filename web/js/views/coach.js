@@ -333,8 +333,9 @@ function settings(el, app) {
         </details>
         <details class="set-group"><summary>Voice &amp; camera</summary>
         <label class="switch"><input type="checkbox" name="voice" ${st.voice ? 'checked' : ''}> <span>Voice coaching</span></label>
+        <label>Voice style<select name="voiceStyle">${opt('coach', st.voiceStyle || 'coach', 'Full coach: combos, pushes, praise, defense calls')}${opt('fixes', st.voiceStyle || 'coach', 'Fixes only ("Hands up")')}</select></label>
         <label class="switch"><input type="checkbox" name="cues" ${st.cues ? 'checked' : ''}> <span>Live form cues ("Hands up!")</span></label>
-        <label class="switch"><input type="checkbox" name="combos" ${st.combos ? 'checked' : ''}> <span>Call out combos</span></label>
+        <label class="switch"><input type="checkbox" name="combos" ${st.combos ? 'checked' : ''}> <span>Call out combos (always on with the full coach)</span></label>
         <label>Combo call every<select name="comboInterval">${[4, 5, 6, 8, 10, 15].map((s) => opt(s, st.comboInterval, `${s} seconds`)).join('')}</select></label>
         <label><span>Punch detection sensitivity <b id="sensOut">${profile.sensitivity}</b></span>
           <input type="range" name="sensitivity" min="0.5" max="2" step="0.1" value="${profile.sensitivity}"></label>
@@ -406,7 +407,7 @@ function settings(el, app) {
     // Never asked and nothing ticked: leave it unset, so the plan stays as it was.
     const own = [...f.querySelectorAll('[name=own]:checked')].map((x) => x.value);
     if (own.length || profile.equipment) app.state.profile.equipment = own;
-    app.state.settings = { ...st, simple: f.simple.checked, voice: f.voice.checked, cues: f.cues.checked, combos: f.combos.checked, comboInterval: +f.comboInterval.value };
+    app.state.settings = { ...st, simple: f.simple.checked, voice: f.voice.checked, voiceStyle: f.voiceStyle.value, cues: f.cues.checked, combos: f.voiceStyle.value === 'coach' || f.combos.checked, comboInterval: +f.comboInterval.value };
     app.rebuildPlan();
     app.persist();
     toast('Saved.');
