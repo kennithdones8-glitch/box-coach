@@ -239,6 +239,7 @@ export function updateMemory(prev, session, profile = {}) {
     ['bestPpm', ppm, 'Best punches per minute'],
     ['bestForm', scores.overall, 'Best overall score'],
     ['mostRounds', session.completedRounds, 'Most rounds completed'],
+    ['fastestHands', session.form?.speed, 'Fastest hand speed'],
   ];
   for (const [key, val, label] of checks) {
     if (val == null || val <= 0) continue;
@@ -313,6 +314,8 @@ export function feedback(session, history, mem, profile = {}) {
     if (f.handReturnMs != null && f.handReturnMs > 650) fixes.push(`Hands took ~${f.handReturnMs}ms to get back to your face. Snap them back.`);
     else if (f.handReturnMs != null && f.handReturnMs <= 450) wins.push(`Fast hand return (~${f.handReturnMs}ms).`);
     if (f.footwork != null && f.footwork < 30 && session.type !== 'bag') fixes.push('You stood still a lot — move after every combination.');
+    if (f.speedDrop != null && f.speedDrop >= 15) fixes.push(`Your hands slowed ${f.speedDrop}% from the first round to the last. Relax between punches and breathe out on each one.`);
+    else if (f.speedDrop != null && f.speedDrop <= 5 && (f.perRound || []).length >= 3) wins.push('Your hand speed held up to the last round.');
   }
 
   const per = session.punches?.perRound || [];
@@ -426,3 +429,6 @@ export function weekSummary(history, now = new Date()) {
   const days = new Set(week.map((s) => dayKey(s.date))).size;
   return { sessions: week.length, minutes, punches, days };
 }
+
+// Hand speed as words, in the boxer's units (the camera's estimate: best compared with yourself).
+export const speedText = (ms, unit = 'lb') => (ms == null ? '–' : unit === 'kg' ? `${Math.round(ms * 3.6)} km/h` : `${Math.round(ms * 2.237)} mph`);

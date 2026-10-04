@@ -680,3 +680,16 @@ test('side-on bag: a fist going backwards in the picture is the guard coming bac
   // Filmed from the other side, forward is the other way in the picture.
   assert.equal(backwardPunch({ dx: 0.5, fwd: 0, angle: 100 }, { sum: -2, n: 5 }), true);
 });
+
+test('hand speed: typical and fastest per round, and how much it fell by the last round', async () => {
+  const { speedStats } = await import('../web/js/form.js');
+  assert.equal(speedStats([3, 4]), null, 'too few punches to say');
+  const s = speedStats([3, 3.2, 3.4, 3.6, 3.8, 4, 4.2, 4.4, 4.6, 13.9, 30]);
+  assert.equal(s.speed, 4); // a 30 m/s tracking glitch is ignored
+  assert.equal(s.n, 10);
+  const rounds = [{ frames: 100, punches: {}, speed: 4, topSpeed: 5, n: 20 }, { frames: 100, punches: {}, speed: 3.4, topSpeed: 4.6, n: 20 }];
+  const c = combineRounds(rounds);
+  assert.equal(c.speed, 3.7);
+  assert.equal(c.topSpeed, 5);
+  assert.equal(c.speedDrop, 15);
+});

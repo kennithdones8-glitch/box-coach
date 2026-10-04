@@ -260,8 +260,17 @@ function emptyRound() {
     narrow: 0, wide: 0, crossed: 0, bladeOk: 0, bladeFrames: 0, moving: 0, headMoving: 0, headMoves: 0, t0: null, t1: null, sideFrames: 0,
     punches: { jab: 0, cross: 0, leadHook: 0, rearHook: 0, leadUppercut: 0, rearUppercut: 0 },
     returnTimes: [], returnLead: [], returnRear: [], leadPunches: 0, rearDrops: 0,
-    punchLog: [], leftCloser: 0, depthFrames: 0,
+    punchLog: [], leftCloser: 0, depthFrames: 0, speeds: [],
   };
+}
+
+// Hand speed from the fist speeds of a round's punches (m/s): the typical punch (median) and the
+// fast ones (90th percentile), so one tracking glitch doesn't set the number.
+export function speedStats(speeds) {
+  const xs = (speeds || []).filter((v) => v > 0 && v < 14).sort((a, b) => a - b);
+  if (xs.length < 5) return null;
+  const at = (q) => xs[Math.min(xs.length - 1, Math.floor(q * xs.length))];
+  return { speed: Math.round(at(0.5) * 10) / 10, topSpeed: Math.round(at(0.9) * 10) / 10, n: xs.length };
 }
 
 // Punch numbers used by boxers: 1 jab, 2 cross, 3 lead hook, 4 rear hook, 5 lead uppercut, 6 rear uppercut.
@@ -370,6 +379,7 @@ export function roundMetrics(r) {
     stream: streamFrom(r.punchLog),
     ...comboStats(sequences),
     leftLeadPct: pct(r.leftCloser, r.depthFrames),
+    ...(speedStats(r.speeds) || {}),
   };
 }
 
@@ -394,6 +404,14 @@ export function combineRounds(rounds) {
   out.sequences = {};
   for (const r of rounds) for (const [k, n] of Object.entries(r.sequences || {})) out.sequences[k] = (out.sequences[k] || 0) + n;
   Object.assign(out, comboStats(out.sequences));
+  // Hand speed over the session, and how much it fell from the first round to the last.
+  const sp = rounds.filter((r) => r.speed != null);
+  if (sp.length) {
+    const n = sp.reduce((a, r) => a + r.n, 0);
+    out.speed = Math.round((sp.reduce((a, r) => a + r.speed * r.n, 0) / n) * 10) / 10;
+    out.topSpeed = Math.max(...sp.map((r) => r.topSpeed));
+    if (sp.length >= 2) out.speedDrop = Math.round((100 * (sp[0].speed - sp.at(-1).speed)) / sp[0].speed);
+  }
   return out;
 }
 
@@ -1003,6 +1021,7 @@ export class FormAnalyzer {
     if (!this.active) return;
     this.round.punches[type]++;
     this.round.punchLog.push({ t, type });
+    this.round.speeds.push(h.peakSpeed);
     const r3 = (x) => Math.round(x * 1000) / 1000;
     this.event('punch', t, conf, {
       type, role, vis, speed: h.peakSpeed, fwd, lat, baseKind: base.kind, setup: this.sig ? { ...this.sig } : null,

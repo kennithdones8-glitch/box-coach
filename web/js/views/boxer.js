@@ -2,8 +2,9 @@
 import { SKILLS, SKILL_GROUPS, OPPONENTS, PATTERN_LIBRARY } from '../library.js';
 import { evidenceFor, proofOfImprovement, styleProfile, developmentTimeline, compareThen, levelWord } from '../skills.js';
 import { fatigueMap, medAnalysis, DIM_NAMES } from '../analysis.js';
-import { BOXING_TYPES, TARGETS, outputPpm } from '../coach.js';
+import { BOXING_TYPES, TARGETS, outputPpm, speedText } from '../coach.js';
 import { lineChart } from '../chart.js';
+import { badges } from '../badges.js';
 import { $, $$, esc, shortDate, subnav, subOf, deltaHTML, confDot, scoreClass, toast, pageHead } from '../ui.js';
 import { newId } from '../store.js';
 
@@ -201,11 +202,22 @@ function timeline(el, app, ctx) {
 
 // ---------------------------------------------------------------------------
 
+// Earned badges first, then the next few to go for with how close you are.
+function badgesHTML(state) {
+  const all = badges(state.sessions, state.profile);
+  const got = all.filter((b) => b.earned);
+  const next = all.filter((b) => !b.earned).sort((a, b) => b.have / b.need - a.have / a.need).slice(0, 3);
+  return `<section class="card"><div class="card-head"><h2>Badges</h2><span class="muted small">${got.length} of ${all.length}</span></div>
+    ${got.length ? `<div class="badges">${got.map((b) => `<span class="badge-chip" title="${esc(b.how)}">${b.icon} ${esc(b.name)}</span>`).join('')}</div>` : ''}
+    <ul class="rows small next-badges">${next.map((b) => `<li><span class="row-ico">${b.icon}</span><div class="grow"><b>${esc(b.name)}</b><br><span class="muted">${esc(b.how)}</span><div class="bar"><div style="width:${Math.round((100 * b.have) / b.need)}%"></div></div></div><span class="muted">${b.need > 1 ? `${b.have.toLocaleString()}/${b.need.toLocaleString()}` : ''}</span></li>`).join('')}</ul>
+  </section>`;
+}
+
 function charts(el, app) {
   const state = app.state;
   const box = state.sessions.filter((s) => s.type in BOXING_TYPES && !s.manual).slice(-20);
   const pts = (fn) => box.map((s) => ({ x: shortDate(s.date), y: fn(s) })).filter((p) => p.y != null);
-  const prs = Object.values(state.memory.prs);
+  const prs = Object.entries(state.memory.prs).map(([k, p]) => ({ ...p, value: k === 'fastestHands' ? speedText(p.value, state.profile.unit) : p.value }));
   const weeks = [];
   const monday = new Date();
   monday.setHours(0, 0, 0, 0);
@@ -223,13 +235,17 @@ function charts(el, app) {
     <section class="card"><h2>Personal records</h2>
       ${prs.length ? `<div class="prs">${prs.map((p) => `<div><b>${p.value}</b><span>${esc(p.label)}</span><em>${shortDate(p.date)}</em></div>`).join('')}</div>` : '<p class="muted">Records show up after your first session.</p>'}
     </section>
+    ${badgesHTML(state)}
     <section class="card"><h3>Overall score</h3><div id="c-overall"></div></section>
     <section class="card"><h3>Punches per minute</h3><div id="c-ppm"></div></section>
     <section class="card"><h3>Guard up %</h3><div id="c-guard"></div></section>
+    ${box.some((s) => s.form?.speed != null) ? `<section class="card"><h3>Hand speed (${state.profile.unit === 'kg' ? 'km/h' : 'mph'})</h3><div id="c-speed"></div><p class="small muted" style="margin:6px 0 0">The camera's estimate, from the same spot each time it's a fair comparison.</p></section>` : ''}
     <section class="card"><h3>Stance held %</h3><div id="c-stance"></div></section>
     <section class="card"><h3>Training minutes per week</h3><div id="c-weeks"></div></section>`;
   lineChart($('#c-overall'), pts((s) => s.scores?.overall), { max: 100, label: 'Overall score' });
   lineChart($('#c-ppm'), pts((s) => outputPpm(s)), { label: 'Punches per minute' });
+  const k = state.profile.unit === 'kg' ? 3.6 : 2.237;
+  if ($('#c-speed')) lineChart($('#c-speed'), pts((s) => (s.form?.speed != null ? Math.round(s.form.speed * k) : null)), { label: 'Hand speed' });
   lineChart($('#c-guard'), pts((s) => s.form?.guard), { max: 100, unit: '%', target: TARGETS.guard, label: 'Guard up percent' });
   lineChart($('#c-stance'), pts((s) => s.form?.stance), { max: 100, unit: '%', target: TARGETS.stance, label: 'Stance percent' });
   lineChart($('#c-weeks'), weeks, { unit: ' min', label: 'Minutes per week' });
