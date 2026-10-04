@@ -31,6 +31,7 @@ import { SetupWatch, SETUP_TEXT } from './camcheck.js';
 import { weeklyRecap } from './recap.js';
 import { weekStreak, newBadges } from './badges.js';
 import { DEF_MOVES, nextDefCall, judgeDefense, defenseSummary } from './defense.js';
+import { readCard, addFriend } from './friends.js';
 import { renderCombos, comboHTML } from './views/combos.js';
 import { parseCombo, comboText, comboLabel, comboSpeech, comboKey, punchDigits, pickCombo, judgeCalls, sessionCombos } from './combos.js';
 
@@ -102,6 +103,16 @@ const routes = {
   log: () => location.replace(`#progress/history${location.hash.split('/')[1] ? `/${location.hash.split('/')[1]}` : ''}`),
   boxer: () => location.replace(`#progress/${location.hash.split('/')[1] || 'skills'}`),
   coach: () => show('coach', (m) => m.renderCoach(view, app)), coachme: () => show('coachme', (m) => m.renderCoachMe(view, app)),
+  // A friend's shared stats link: keep their card, then show you side by side.
+  friend: () => {
+    const card = readCard(location.hash.split('/')[1] || '');
+    if (card && card.i !== state.profile.shareId) {
+      state.friends = addFriend(state.friends, card, state.profile.shareId);
+      persist();
+      toast(`${card.n} added. You're side by side in Progress → Charts.`);
+    } else if (!card) toast("That friend link didn't work. Ask them to share it again.");
+    location.replace('#progress/charts');
+  },
 };
 
 // A finished session waiting on the summary screen. Leaving it any way other than Discard saves it,
