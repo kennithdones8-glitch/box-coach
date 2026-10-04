@@ -25,7 +25,7 @@ import { trustedCal } from './calibrate.js';
 import { installErrorLog } from './bugreport.js';
 
 installErrorLog();
-import { addExamples, spotModel } from './personal.js';
+import { addExamples, spotModel, setupNear } from './personal.js';
 import { testPlan, scoreTest, testLabels, testHistory, testProblems } from './punchtest.js';
 import { SetupWatch, SETUP_TEXT } from './camcheck.js';
 import { weeklyRecap } from './recap.js';
@@ -33,6 +33,7 @@ import { weekStreak, newBadges } from './badges.js';
 import { DEF_MOVES, nextDefCall, judgeDefense, defenseSummary } from './defense.js';
 import { readCard, addFriend } from './friends.js';
 import { bellsReady, handBellsToPhone, takeBellsBack } from './bells.js';
+import { CoachVoice } from './coachvoice.js';
 import { renderCombos, comboHTML } from './views/combos.js';
 import { parseCombo, comboText, comboLabel, comboSpeech, comboKey, punchDigits, pickCombo, judgeCalls, sessionCombos } from './combos.js';
 
@@ -47,7 +48,7 @@ function persist() {
   if (!store.save(state)) toast('Could not save — storage is full or blocked.');
 }
 
-export const APP_VERSION = '2026.10.04-7';
+export const APP_VERSION = '2026.10.04-8';
 
 const app = {
   version: APP_VERSION,
@@ -524,6 +525,8 @@ async function startSession(plan) {
     completedRounds: 0, comboTimer: null, burstTimers: [], stopMotion: null, analyzer: null, tracker: null, wakeLock: null,
     medThreshold: med?.threshold || null, medCued: false, calls: [], callResults: [], lastComboId: null,
     roundCalls: [], maxLen: null, adjustments: [], callN: 0, defCalls: [], defRounds: [],
+    // Full-coach voice: pushes and praise (not during the punch test or defense drill, which need clear calls).
+    coach: state.settings.voice && state.settings.voiceStyle === 'coach' && !plan.test && !plan.defense ? new CoachVoice() : null,
   };
 
   try { live.wakeLock = await navigator.wakeLock?.request('screen'); } catch { /* optional */ }
@@ -532,6 +535,7 @@ async function startSession(plan) {
     if (!live || live.timer?.phase !== 'work') return;
     live.total++;
     live.roundPunches++;
+    live.coach?.punch(performance.now());
     if (type && live.byType) live.byType[type]++;
     $('#livePunches').textContent = live.total;
     if (live.medThreshold && !live.medCued && live.byType?.jab >= live.medThreshold) {
@@ -549,6 +553,7 @@ async function startSession(plan) {
       labels: state.profile.punchLabels || null,
       onCue: (key, text) => {
         if (!state.settings.cues || live?.plan.test || live?.plan.defense) return; // drill calls need a clear voice
+        live?.coach?.cued(key, performance.now()); // watch for the fix, to praise it
         showCue(text);
         // Reminders never talk over a combo call: skipped while one is being said or due.
         if (live?.nextCallAt && Math.abs(live.nextCallAt - performance.now()) < 2500) return;
@@ -715,6 +720,8 @@ function onPhase(phase, round) {
     if (!quiet) { audio.bell(1); audio.vibrate([200]); }
     live.roundPunches = 0;
     live.roundWorkStart = t.workMs; // for this round's punches per minute
+    live.coach?.startRound(performance.now());
+    live.coachPending = null;
     live.analyzer?.startRound();
     const rp = roundPlan(round);
     showConstraint(rp);
@@ -770,6 +777,14 @@ function showConstraint(rp) {
 
 function onTick(phase, secLeft) {
   updateClock();
+  // Full coach: a push or a word of praise, never over a combo call.
+  if (phase === 'work' && live?.coach && !live.timer.paused) {
+    const now = performance.now();
+    const nearCall = (live.nextCallAt && Math.abs(live.nextCallAt - now) < 2500) || now - (live.lastCallAt || 0) < 3000;
+    const line = live.coachPending ? null : live.coach.tick(now, { seen: live.analyzer?.seen, leftMs: live.timer.remainingMs });
+    // In the gap between calls say it now; otherwise it takes the next call's place.
+    if (line && !nearCall) { showCue(line); audio.say(line); } else if (line) live.coachPending = line;
+  }
   if (phase === 'work' && secLeft === 10) audio.clap();
   if ((phase === 'rest' || phase === 'prep') && secLeft <= 3 && secLeft > 0) audio.tick();
 }
@@ -780,6 +795,25 @@ function scheduleCombos(rp) {
   const opp = rp?.opponent ? OPPONENTS[rp.opponent] : null;
   const call = () => {
     if (!live || live.timer.phase !== 'work' || live.timer.paused || live.bursting) return;
+    // Full coach: a push or praise waiting for a gap goes out in this call's place.
+    if (live.coachPending) {
+      showCue(live.coachPending);
+      audio.say(live.coachPending, { interrupt: true });
+      live.coachPending = null;
+      live.lastCallAt = performance.now();
+      live.nextCallAt = live.lastCallAt + every;
+      return;
+    }
+    // Full coach: every fourth call is a slip, roll or block instead of a combo.
+    if (live.coach && (live.defN = (live.defN || 0) + 1) % 4 === 0) {
+      const move = nextDefCall(live.defPrev ||= []);
+      live.defPrev.push(move);
+      $('#liveCombo').innerHTML = `<b class="def-call">${DEF_MOVES[move]}!</b>`;
+      audio.say(`${DEF_MOVES[move]}!`, { rate: 1.3, interrupt: true });
+      live.lastCallAt = performance.now();
+      live.nextCallAt = live.lastCallAt + every;
+      return;
+    }
     const level = live.plan.comboLevel;
     const mine = level === 'only' ? state.combos.filter((x) => live.plan.comboIds?.includes(x.id)) : state.combos;
     const useMine = mine.length && (level === 'mine' || level === 'only' || (level === 'mix' && Math.random() < 0.5));
@@ -940,6 +974,7 @@ function finishSession() {
     coach: l.plan.coach ? { ...l.plan.coach } : undefined,
     benchmark: l.plan.benchmark || undefined,
     test: l.plan.test ? finishTest(l) : undefined,
+    spot: l.analyzer?.sig ? { ...l.analyzer.sig } : undefined, // where the camera was
     defense: l.plan.defense && l.defRounds.length ? defenseSummary(l.defRounds) : undefined,
     adjustments: l.adjustments.length ? l.adjustments : undefined,
     rpe: 7, notes: '',
@@ -1085,6 +1120,15 @@ function testHTML(session) {
   </div>`;
 }
 
+// Trained from a camera spot it hasn't learned yet: suggest a quick punch test there.
+function newSpotHTML(session) {
+  if (!session.spot || session.test || session.defense) return '';
+  const known = (state.profile.punchLabels || []).filter((x) => setupNear(x, session.spot)).length;
+  if (known >= 20) return '';
+  return `<div class="pr">📍 New camera spot. A 3-minute punch test from here teaches it how your punches look from this angle.
+    <button class="btn ghost block" id="spotTest" type="button" style="margin-top:8px">Punch test from here</button></div>`;
+}
+
 // Defense drill result: how many of each call you answered in time.
 function defenseHTML(session) {
   const d = session.defense;
@@ -1122,6 +1166,7 @@ function renderSummary(session) {
       ${events.confirmed.length ? `<div class="pr warn">🧠 I'm noticing a pattern: ${events.confirmed.map((k) => esc(INSIGHTS[k].text)).join(' ')}</div>` : ''}
       ${testHTML(session)}
       ${defenseHTML(session)}
+      ${newSpotHTML(session)}
       ${coachedHTML(session)}
       ${sessionDetailHTML(session, fb)}
     </section>
@@ -1144,6 +1189,7 @@ function renderSummary(session) {
   pendingSummary = { session, form: f };
   bindReview(f);
   f.rpe.addEventListener('input', () => { $('#rpeOut').textContent = f.rpe.value; });
+  $('#spotTest')?.addEventListener('click', () => { savePendingSummary(); app.startPunchTest(); });
   // Retest the punches it read badly: this test is saved first, so nothing is lost.
   $('#retest')?.addEventListener('click', () => {
     savePendingSummary();

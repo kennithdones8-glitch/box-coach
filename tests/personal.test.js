@@ -34,10 +34,12 @@ test('labels and fixes from a reviewed video become examples; the store keeps th
   assert.equal(addExamples(Array(799).fill({ kind: 'hook' }), got).length, 800);
 });
 
-test('older saves switch combo calls off once (voice gives fixes only); later choices stick', () => {
+test('voice migrations: saves without a voice style get the full coach (combos on); later choices stick', () => {
   const mem = (data) => ({ getItem: () => JSON.stringify(data) });
-  assert.equal(load(mem({ settings: { combos: true } })).settings.combos, false);
-  assert.equal(load(mem({ settings: { combos: true, voiceV2: true } })).settings.combos, true);
+  const old = load(mem({ settings: { combos: false, voiceV2: true } })).settings;
+  assert.deepEqual([old.voiceStyle, old.combos], ['coach', true]);
+  const fixes = load(mem({ settings: { combos: false, voiceV2: true, voiceStyle: 'fixes' } })).settings;
+  assert.deepEqual([fixes.voiceStyle, fixes.combos], ['fixes', false]);
 });
 
 test('what you taught from one camera spot is only used from a similar spot', async () => {

@@ -694,6 +694,8 @@ export class FormAnalyzer {
       r.guardEligible++;
       if (bothUp) r.guardUp++;
     }
+    // What's true right now (for the coach's voice: praise when a fix sticks).
+    this.seen = { t, guard: eligible ? bothUp : null, moving: null, head: null };
     const downFor = this.held('guardDown', eligible && !bothUp, t);
     if (downFor > 1200) {
       if (!this.guardEventOpen) {
@@ -765,6 +767,7 @@ export class FormAnalyzer {
     const hipRange = this._trailRange(this.hipTrail, { x: hipM.x, y: 0, t }, 1500) / torso; // distance moved, in torsos
     const moving = hipRange > 0.4;
     if (moving) r.moving++;
+    if (this.seen) this.seen.moving = moving;
     if (this.held('static', !moving, t) > 7000) this.cue('static', 'Move your feet', t);
 
     // Head movement: distinct moves of the head away from where it usually sits over the hips
@@ -793,6 +796,7 @@ export class FormAnalyzer {
     this.blocking = blocking;
     const headMoving = t - this.lastHeadMove < 2000;
     if (headMoving) r.headMoving++;
+    if (this.seen) this.seen.head = headMoving;
     if (r.t0 == null) r.t0 = t;
     r.t1 = t;
     if (this.held('headStill', !headMoving, t) > 9000) this.cue('head', 'Move your head', t);
