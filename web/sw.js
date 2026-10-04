@@ -1,5 +1,5 @@
 // Offline support: cache the app shell, and cache the pose model/runtime after first use.
-const CACHE = 'boxcoach-2026.10.04-3'; // must match APP_VERSION in js/app.js (a test checks)
+const CACHE = 'boxcoach-2026.10.04-4'; // must match APP_VERSION in js/app.js (a test checks)
 const SHELL = [
   './', 'index.html', 'about.html', 'privacy.html', 'support.html', 'css/styles.css', 'manifest.webmanifest', 'icon.svg', 'icon-192.png', 'icon-512.png',
   'js/app.js', 'js/audio.js', 'js/chart.js', 'js/coach.js', 'js/form.js', 'js/motion.js', 'js/plan.js', 'js/pose.js', 'js/store.js', 'js/timer.js',

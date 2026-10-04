@@ -47,7 +47,7 @@ function persist() {
   if (!store.save(state)) toast('Could not save — storage is full or blocked.');
 }
 
-export const APP_VERSION = '2026.10.04-3';
+export const APP_VERSION = '2026.10.04-4';
 
 const app = {
   version: APP_VERSION,
@@ -110,7 +110,7 @@ const routes = {
     if (card && card.i !== state.profile.shareId) {
       state.friends = addFriend(state.friends, card, state.profile.shareId);
       persist();
-      toast(`${card.n} added. You're side by side in Progress → Charts.`);
+      toast(`${card.n} added. You're side by side in Progress → Stats.`);
     } else if (!card) toast("That friend link didn't work. Ask them to share it again.");
     location.replace('#progress/charts');
   },
@@ -179,8 +179,7 @@ function renderHome() {
   // Short, prioritised notes from the coach.
   const notes = [];
   if (phase.camp) notes.push(['🥊', `${phase.name}`, phase.priorities.join(' · '), '#plan']);
-  if (day.priorities.congested) notes.push(['⚠️', 'Too many priorities at once', `${day.priorities.all.length - (state.paused || []).length} active — focus on the top 3`, '#coach/priorities']);
-  if (ctx.proposals.length) notes.push(['🧪', 'I have a hypothesis to test', ctx.proposals[0].text, '#coach/hypotheses']);
+  if (ctx.proposals.length) notes.push(['🧪', 'An idea to test', ctx.proposals[0].text, '#coach/hypotheses']);
   if (ws?.status === 'fast' || ws?.status === 'behind') notes.push(['⚖️', ws.status === 'fast' ? 'Cutting weight too fast' : 'Weight trending above target', ws.message, '#plan/weight']);
   notes.unshift(...safetyNotes({ standalone: isStandalone(), ios: isIOS(), sessions: sessions.length, lastBackup: state.settings.lastBackup }));
   const decay = ctx.decay[0];
@@ -618,6 +617,8 @@ function updateClock() {
   if (!live) return;
   const t = live.timer;
   $('#liveClock').textContent = fmt(Math.ceil(t.remainingMs / 1000));
+  const total = ({ prep: t.prepSec, work: t.roundSec, rest: t.restSec }[t.phase] || 0) * 1000;
+  $('#liveBar').style.width = total ? `${Math.max(0, Math.min(100, (100 * t.remainingMs) / total))}%` : '0%';
   const workMin = t.workMs / 60000;
   if (workMin > 0.15 && (live.tracking !== 'none' || live.total)) $('#livePpm').textContent = Math.round(live.total / workMin);
 }
@@ -1308,13 +1309,15 @@ function renderPlan() {
     </section>
 
     <section class="card">
+      ${(() => { const empty = DAY_NAMES.filter((_, d) => !plan.items.some((i) => i.day === d)); return empty.length ? `<p class="small muted" style="margin:0 0 6px">${empty.length === 1 ? empty[0] : `${empty[0]}–${empty.at(-1)}`}: before this plan started.</p>` : ''; })()}
       <ul class="week">${DAY_NAMES.map((name, d) => {
         const items = plan.items.filter((i) => i.day === d);
+        if (!items.length) return ''; // days before the plan started: one line above
         const date = localDay(new Date(new Date(plan.week + 'T12:00:00').getTime() + d * 86400000));
         const cls = date === today ? 'today' : date < today ? 'past' : '';
         return `<li class="${cls}">
           <div class="week-day"><span>${name}</span><b>${new Date(date + 'T12:00:00').getDate()}</b></div>
-          <div>${items.length ? items.map((it) => planItemHTML(it, status[it.id] === 'today' ? '' : status[it.id])).join('') : '<p class="muted small" style="margin:6px 0">Before this plan started.</p>'}</div>
+          <div>${items.map((it) => planItemHTML(it, status[it.id] === 'today' ? '' : status[it.id])).join('')}</div>
         </li>`;
       }).join('')}</ul>
       <div class="legend"><span><span class="load hard"></span>Hard</span><span><span class="load moderate"></span>Moderate</span><span><span class="load easy"></span>Easy</span></div>

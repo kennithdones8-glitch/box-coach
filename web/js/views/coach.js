@@ -16,7 +16,7 @@ const taughtText = (p) => {
   return `You've taught it ${all} punches${spotted < all ? ` (${spotted} with the camera spot recorded)` : ''}. It uses them only when the camera is set up like it was then, and only where it beats the built-in reading. A punch test from each spot you use teaches it fastest.`;
 };
 
-const SUBS = [['memory', 'Memory'], ['hypotheses', 'Tests'], ['priorities', 'Priorities'], ['iq', 'Fight IQ']];
+const SUBS = [['memory', 'Notes'], ['hypotheses', 'Ideas'], ['priorities', 'Focus'], ['iq', 'Fight IQ']];
 
 // Pro weight-class limits in pounds.
 export const WEIGHT_CLASSES = [
@@ -30,7 +30,7 @@ export function renderCoach(view, app) {
   const sub = subOf('memory');
   view.innerHTML = sub === 'settings'
     ? `${pageHead('Settings', { eyebrow: '<a href="#coach">‹ Coach</a>' })}<div id="coachBody"></div>`
-    : `${pageHead('Coach', { eyebrow: 'What I know and what I\'m testing', nav: subnav('coach', SUBS, sub) })}<div id="coachBody"></div>`;
+    : `${pageHead('Coach', { eyebrow: 'What I know about your boxing', nav: subnav('coach', SUBS, sub) })}<div id="coachBody"></div>`;
   ({ memory, hypotheses, prioritiesView, iq, settings }[{ priorities: 'prioritiesView' }[sub] || sub] || memory)($('#coachBody'), app);
 }
 
@@ -79,7 +79,7 @@ function memory(el, app) {
     </details>
     ${listCard('Coach said', by('coach'), note, "Log what your coach tells you. I'll track whether it improves.")}
     ${by('self').length ? listCard('Your notes', by('self'), note) : ''}
-    ${listCard('What I noticed', by('ai'), note, 'Patterns from your data show up here after a few sessions.', 'Inferred from your data: treat as hypotheses, not facts.')}
+    ${listCard('What I noticed', by('ai'), note, 'Patterns from your data show up here after a few sessions.', 'Guesses from your data, not facts: your coach knows better.')}
     <section class="card"><h2>Measured</h2>
       ${measured.length ? `<div class="areas">${measured.map((a) => `<div class="area"><span>${AREAS[a]}</span><div class="bd-bar"><div class="${scoreClass(state.memory.ema[a], TARGETS[a])}" style="width:${state.memory.ema[a]}%"></div><i style="left:${TARGETS[a]}%"></i></div><b>${state.memory.ema[a]}</b></div>`).join('')}</div><p class="muted small">Camera-measured recent averages; the tick is the target.</p>` : '<p class="muted small">Camera sessions produce measured data.</p>'}
       ${Object.keys(state.memory.insights).length ? `<details class="howto"><summary class="small">Habits seen (${Object.keys(state.memory.insights).length})</summary><ul class="habits">${Object.entries(state.memory.insights).map(([k, v]) => `<li>${esc(INSIGHTS[k].text)} <span class="muted">· ${v.count}× · last ${shortDate(v.lastSeen)}</span></li>`).join('')}</ul></details>` : ''}
@@ -125,7 +125,7 @@ function hypotheses(el, app) {
   el.innerHTML = `
     <section class="card">
       <h2>Proposed</h2>
-      <p class="muted small">I form hypotheses from your data, then test them: your last 3 weeks are the baseline, the next 2 weeks run the intervention, and I compare.</p>
+      <p class="muted small">Ideas from your data that I can check: your last 3 weeks are the "before", then 2 weeks of the change, and I compare.</p>
       ${ctx.proposals.length ? ctx.proposals.map((p) => `
         <div class="hyp">
           <p><b>${esc(p.text)}</b></p>
@@ -185,7 +185,7 @@ function prioritiesView(el, app) {
   el.innerHTML = `
     <section class="card">
       <h2>Active priorities</h2>
-      ${pr.congested ? `<div class="msg behind">⚠️ ${esc(pr.message)}<br><button class="btn primary" id="applyTop3" style="margin-top:8px">Focus on the top 3</button></div>` : ''}
+      ${pr.congested ? `<p class="small muted" style="margin-top:0">${esc(pr.message)} <button class="linkbtn small" id="applyTop3" type="button">Pause the rest</button></p>` : ''}
       ${pr.active.length ? pr.active.map((p, i) => `<div class="prio"><div><b>${i + 1}. ${esc(p.label)}</b><p class="small muted">${esc(p.why[0] || '')}</p><span class="src">${esc(p.source)}</span></div><button class="btn ghost" data-toggle="${esc(p.key)}">Pause</button></div>`).join('')
         : '<p class="muted small">No priorities yet. Train and log, and I\'ll rank what matters.</p>'}
     </section>
@@ -303,14 +303,18 @@ function settings(el, app) {
   const { profile, settings: st } = app.state;
   el.innerHTML = `
     <section class="card">
-      <h2>Profile</h2>
       <form id="profile" class="form">
+        <details class="set-group" open><summary>You</summary>
         <label>Name<input name="name" value="${esc(profile.name)}" maxlength="40" placeholder="Optional"></label>
         <div class="row2">
           <label>Stance<select name="stance">${opt('orthodox', profile.stance, 'Orthodox')}${opt('southpaw', profile.stance, 'Southpaw')}</select></label>
           <label>Level<select name="level">${opt('beginner', profile.level, 'Beginner')}${opt('intermediate', profile.level, 'Intermediate')}${opt('advanced', profile.level, 'Advanced')}</select></label>
         </div>
         <label>Goal<select name="goal">${opt('compete', profile.goal, 'Compete')}${opt('technique', profile.goal, 'Technique')}${opt('fitness', profile.goal, 'Fitness')}${opt('self-defence', profile.goal, 'Self-defence')}</select></label>
+        <label>Training days per week<input type="number" name="weeklyGoal" min="1" max="7" value="${profile.weeklyGoal}"></label>
+        <fieldset><legend>What you train with (for the weekly plan)</legend>${Object.entries(OWN).map(([k, v]) => `<label class="switch"><input type="checkbox" name="own" value="${k}" ${(profile.equipment || []).includes(k) ? 'checked' : ''}> <span>${esc(v)}</span></label>`).join('')}</fieldset>
+        </details>
+        <details class="set-group"><summary>Fight &amp; weight</summary>
         <div class="row2">
           <label>Fight rounds<select name="fightRounds">${[3, 4, 5, 6, 8, 10, 12].map((n) => opt(n, profile.fight.rounds, n)).join('')}</select></label>
           <label>Round length<select name="fightRoundSec">${[120, 180].map((n) => opt(n, profile.fight.roundSec, `${n / 60} min`)).join('')}</select></label>
@@ -325,16 +329,17 @@ function settings(el, app) {
           <label>Target weight (${esc(profile.unit)})<input type="number" name="targetWeight" step="0.1" min="0" inputmode="decimal" value="${profile.targetWeight ?? ''}" placeholder="${profile.unit === 'lb' ? 'e.g. 154' : 'e.g. 70'}"></label>
           <label>Units<select name="unit">${opt('lb', profile.unit, 'Pounds (lb)')}${opt('kg', profile.unit, 'Kilograms (kg)')}</select></label>
         </div>
-        <label>Training days per week<input type="number" name="weeklyGoal" min="1" max="7" value="${profile.weeklyGoal}"></label>
-        <fieldset><legend>What you train with (for the weekly plan)</legend>${Object.entries(OWN).map(([k, v]) => `<label class="switch"><input type="checkbox" name="own" value="${k}" ${(profile.equipment || []).includes(k) ? 'checked' : ''}> <span>${esc(v)}</span></label>`).join('')}</fieldset>
-        <label><span>Punch detection sensitivity <b id="sensOut">${profile.sensitivity}</b></span>
-          <input type="range" name="sensitivity" min="0.5" max="2" step="0.1" value="${profile.sensitivity}"></label>
-        ${profile.punchCal?.acc >= 0.6 ? `<p class="small muted" style="margin:0">Punch reading tuned to you from ${profile.punchCal.n} punches (drilled-combo videos, ${Math.round(profile.punchCal.acc * 100)}% right). <button type="button" class="linkbtn" id="resetCal">Reset</button></p>` : ''}
-        ${profile.punchLabels?.length ? `<p class="small muted" style="margin:0">${taughtText(profile)} <button type="button" class="linkbtn" id="resetLabels">Forget my labels</button></p>` : ''}
+        </details>
+        <details class="set-group"><summary>Voice &amp; camera</summary>
         <label class="switch"><input type="checkbox" name="voice" ${st.voice ? 'checked' : ''}> <span>Voice coaching</span></label>
         <label class="switch"><input type="checkbox" name="cues" ${st.cues ? 'checked' : ''}> <span>Live form cues ("Hands up!")</span></label>
         <label class="switch"><input type="checkbox" name="combos" ${st.combos ? 'checked' : ''}> <span>Call out combos</span></label>
         <label>Combo call every<select name="comboInterval">${[4, 5, 6, 8, 10, 15].map((s) => opt(s, st.comboInterval, `${s} seconds`)).join('')}</select></label>
+        <label><span>Punch detection sensitivity <b id="sensOut">${profile.sensitivity}</b></span>
+          <input type="range" name="sensitivity" min="0.5" max="2" step="0.1" value="${profile.sensitivity}"></label>
+        ${profile.punchCal?.acc >= 0.6 ? `<p class="small muted" style="margin:0">Punch reading tuned to you from ${profile.punchCal.n} punches (drilled-combo videos, ${Math.round(profile.punchCal.acc * 100)}% right). <button type="button" class="linkbtn" id="resetCal">Reset</button></p>` : ''}
+        ${profile.punchLabels?.length ? `<p class="small muted" style="margin:0">${taughtText(profile)} <button type="button" class="linkbtn" id="resetLabels">Forget my labels</button></p>` : ''}
+        </details>
         <button class="btn primary block" type="submit">Save</button>
         <button class="btn ghost block" id="shareApp" type="button">Share BoxCoach with a friend</button>
       </form>
