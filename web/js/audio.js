@@ -1,8 +1,10 @@
 // Bell, beeps and spoken cues.
+import { playlist } from './voicepack.js';
 
 let ctx = null;
 
 export function unlockAudio() {
+  loadVoicePack();
   if (!ctx) {
     const AC = window.AudioContext || window.webkitAudioContext;
     if (AC) ctx = new AC();
@@ -72,7 +74,9 @@ export function tick() {
 }
 
 let voiceOn = true;
-let wanted = ''; // a voice name picked in Settings ('' = the most natural one on this phone)
+// Settings: '' = the recorded BoxCoach coach, 'device' = the phone's most natural voice, or a
+// phone voice by name.
+let wanted = '';
 export function setVoice(on, name = '') {
   voiceOn = on;
   wanted = name || '';
@@ -93,17 +97,73 @@ export function voiceScore(v) {
 let chosen = null;
 function pickVoice() {
   const list = englishVoices();
-  chosen = (wanted && list.find((v) => v.name === wanted)) || list[0] || null;
+  chosen = (wanted && wanted !== 'device' && list.find((v) => v.name === wanted)) || list[0] || null;
 }
 globalThis.speechSynthesis?.addEventListener?.('voiceschanged', pickVoice);
 
-// rate 1 = calm, talking pace; combo calls go a little quicker.
+// The recorded coach (voicepack.js): the manifest, and clips decoded on first use.
+let manifest = null, manifestLoad = null;
+const clips = new Map();
+export function loadVoicePack() {
+  manifestLoad ||= fetch('voice/manifest.json').then((r) => (r.ok ? r.json() : null)).then((m) => { manifest = m; return m; }).catch(() => null);
+  return manifestLoad;
+}
+const clip = (file) => {
+  if (!clips.has(file)) clips.set(file, fetch(file).then((r) => r.arrayBuffer()).then((b) => ctx.decodeAudioData(b)));
+  return clips.get(file);
+};
+// Decode every clip ahead of a session, a few at a time, so calls play on the beat.
+export async function preloadVoice() {
+  await loadVoicePack();
+  if (!manifest || !ctx || wanted) return;
+  const files = [...new Set(Object.values(manifest))];
+  for (let i = 0; i < files.length; i += 8) await Promise.all(files.slice(i, i + 8).map((f) => clip(f).catch(() => {})));
+}
+let playing = [], busyUntil = 0, turn = 0;
+function stopClips() {
+  turn++;
+  for (const src of playing) { try { src.stop(); } catch { /* already done */ } }
+  playing = [];
+  busyUntil = 0;
+}
+export const speaking = () => (ctx && ctx.currentTime < busyUntil) || !!globalThis.speechSynthesis?.speaking;
+
+// rate 1 = calm, talking pace; combo calls go a little quicker (recorded calls already are).
 export function say(text, { interrupt = false, rate = 1 } = {}) {
-  if (!voiceOn || !text || !('speechSynthesis' in window)) return;
+  if (!voiceOn || !text) return;
+  // The recordings' index is still loading (first line of a session): wait for it, briefly.
+  if (!wanted && ctx && !manifest && manifestLoad && !say.waiting) {
+    say.waiting = true;
+    manifestLoad.finally(() => { say.waiting = false; say(text, { interrupt, rate }); });
+    return;
+  }
+  const list = !wanted && ctx && manifest ? playlist(text, manifest) : null;
+  if (list) {
+    if (interrupt) { stopClips(); globalThis.speechSynthesis?.cancel(); } else if (speaking()) return; // don't queue up stale cues
+    const mine = ++turn;
+    Promise.all(list.map((x) => clip(x.file))).then((bufs) => {
+      if (mine !== turn) return; // something newer interrupted
+      let t = ctx.currentTime + 0.02;
+      bufs.forEach((b, i) => {
+        const src = ctx.createBufferSource();
+        src.buffer = b;
+        src.connect(ctx.destination);
+        src.start(t);
+        playing.push(src);
+        t += b.duration + list[i].gap;
+      });
+      busyUntil = t;
+    }).catch(() => speakWithPhone(text, { interrupt, rate }));
+    return;
+  }
+  speakWithPhone(text, { interrupt, rate });
+}
+
+function speakWithPhone(text, { interrupt, rate }) {
+  if (!('speechSynthesis' in window)) return;
   const s = window.speechSynthesis;
-  if (interrupt) s.cancel();
-  else if (s.speaking || s.pending) return; // don't queue up stale cues
-  if (!chosen || (wanted && chosen.name !== wanted)) pickVoice();
+  if (interrupt) { s.cancel(); stopClips(); } else if (speaking()) return;
+  if (!chosen || (wanted && wanted !== 'device' && chosen.name !== wanted)) pickVoice();
   const u = new SpeechSynthesisUtterance(text);
   if (chosen) { u.voice = chosen; u.lang = chosen.lang; }
   u.rate = rate;

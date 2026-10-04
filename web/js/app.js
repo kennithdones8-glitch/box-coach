@@ -51,7 +51,7 @@ function persist() {
   if (!store.save(state)) toast('Could not save — storage is full or blocked.');
 }
 
-export const APP_VERSION = '2026.10.04-9';
+export const APP_VERSION = '2026.10.05-1';
 
 const app = {
   version: APP_VERSION,
@@ -538,6 +538,7 @@ async function startSession(plan) {
   if (live) return;
   audio.unlockAudio();
   audio.setVoice(state.settings.voice, state.settings.voiceName);
+  audio.preloadVoice(); // the recorded coach's clips, ready before the first call
   let tracking = plan.tracking;
   if (tracking === 'motion') {
     try {
