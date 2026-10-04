@@ -35,6 +35,7 @@ import { readCard, addFriend } from './friends.js';
 import { bellsReady, handBellsToPhone, takeBellsBack } from './bells.js';
 import { CoachVoice } from './coachvoice.js';
 import { allWorkouts } from './workouts.js';
+import { cardData, shareCard } from './sharecard.js';
 import { line as voiceLine, hasLine } from './voice.js';
 import { renderCombos, comboHTML } from './views/combos.js';
 import { parseCombo, comboText, comboLabel, comboSpeech, comboKey, punchDigits, pickCombo, judgeCalls, sessionCombos } from './combos.js';
@@ -50,7 +51,7 @@ function persist() {
   if (!store.save(state)) toast('Could not save — storage is full or blocked.');
 }
 
-export const APP_VERSION = '2026.10.04-8';
+export const APP_VERSION = '2026.10.04-9';
 
 const app = {
   version: APP_VERSION,
@@ -162,8 +163,40 @@ let trainOptsOpen = false;
 
 const STATUS_WORD = { fresh: 'Fresh', normal: 'Ready to train', strained: 'Go lighter today', deload: 'Deload needed' };
 
+// First open: three cards on what BoxCoach does, before the welcome questions. Once.
+const TOUR = [
+  ['img/1-today.jpg', 'A coach in your pocket', 'Prop your phone up 2–3 m away. It watches every round, calls your combos and talks you through it.'],
+  ['img/3-punch-test.jpg', 'It reads every punch', 'Jab, cross, hooks and uppercuts. A 3-minute test teaches it how you punch.'],
+  ['img/5-progress.jpg', 'See yourself get better', 'Records, badges and progress you can share. No account; everything stays on your phone.'],
+];
+function renderTour() {
+  document.body.classList.add('touring');
+  view.innerHTML = `<section class="tour" aria-label="How BoxCoach works">
+    <div class="tour-track" id="tourTrack" tabindex="0" role="region" aria-label="How it works, swipe for more">${TOUR.map(([img, title, text], i) => `
+      <div class="tour-slide" aria-roledescription="slide" aria-label="${i + 1} of ${TOUR.length}">
+        <img src="${img}" alt="" width="780" height="1560">
+        <h2>${esc(title)}</h2><p>${esc(text)}</p>
+      </div>`).join('')}</div>
+    <div class="tour-dots" aria-hidden="true">${TOUR.map((_, i) => `<span class="${i ? '' : 'on'}"></span>`).join('')}</div>
+    <button class="btn primary block big" id="tourNext" type="button">Next</button>
+    <button class="linkbtn small" id="tourSkip" type="button">Skip</button>
+  </section>`;
+  const track = $('#tourTrack');
+  const at = () => Math.round(track.scrollLeft / track.clientWidth);
+  const done = () => { state.profile.toured = true; persist(); document.body.classList.remove('touring'); renderHome(); };
+  const sync = () => {
+    $$('.tour-dots span').forEach((d, i) => d.classList.toggle('on', i === at()));
+    $('#tourNext').textContent = at() === TOUR.length - 1 ? "Let's go" : 'Next';
+  };
+  track.addEventListener('scroll', () => requestAnimationFrame(sync), { passive: true });
+  $('#tourNext').addEventListener('click', () => (at() >= TOUR.length - 1 ? done() : track.scrollTo({ left: (at() + 1) * track.clientWidth, behavior: 'smooth' })));
+  $('#tourSkip').addEventListener('click', done);
+}
+
 function renderHome() {
   const { profile, sessions } = state;
+  if (!sessions.length && !profile.onboarded && !profile.toured) return renderTour();
+  document.body.classList.remove('touring');
   const ctx = app.model();
   const wk = weekSummary(sessions);
   const plan = currentPlan();
@@ -1202,6 +1235,7 @@ function renderSummary(session) {
         <div class="rpe-scale"><span>Easy</span><span>Max effort</span></div>
         <label>Notes (how you felt, what clicked)<textarea name="notes" rows="3" maxlength="1000"></textarea></label>
         <button class="btn primary block big" type="submit">Save session</button>
+        <button class="btn ghost block" type="button" id="shareSession">📸 Share this session</button>
         <div class="row2" style="margin-top:0">
           <button class="btn ghost" type="button" id="copyReport">Copy report for coach</button>
           <button class="btn ghost" type="button" id="discard">Discard</button>
@@ -1220,6 +1254,10 @@ function renderSummary(session) {
   });
   $('#discard').addEventListener('click', () => {
     if (confirm('Discard this session?')) { pendingSummary = null; location.hash = '#home'; route(); }
+  });
+  $('#shareSession').addEventListener('click', async () => {
+    const r = await shareCard(cardData(session, { name: sessionName(session), unit: state.profile.unit, badges: newBadges(state.sessions, session, state.profile) }));
+    if (r === 'downloaded') toast('Saved the picture. Post it from your photos.');
   });
   $('#copyReport').addEventListener('click', () => {
     readReview(f, session, state);
@@ -1572,7 +1610,7 @@ function openDetail(id) {
       ${testHTML(s)}
       ${defenseHTML(s)}
       ${sessionDetailHTML(s, s.feedback)}
-      ${s.type in BOXING_TYPES ? '<button class="btn ghost block" data-report>Copy report for coach</button>' : ''}
+      ${s.type in BOXING_TYPES ? '<button class="btn ghost block" data-share>📸 Share this session</button><button class="btn ghost block" data-report>Copy report for coach</button>' : ''}
       <div class="row2">
         <button class="btn danger" data-del>Delete</button>
         <button class="btn primary" data-close>Close</button>
@@ -1580,6 +1618,9 @@ function openDetail(id) {
     </div>`;
   d.querySelector('[data-close]').addEventListener('click', () => d.close());
   d.querySelector('[data-report]')?.addEventListener('click', () => { d.close(); copyReport(s); });
+  d.querySelector('[data-share]')?.addEventListener('click', async () => {
+    if (await shareCard(cardData(s, { name: sessionName(s), unit: state.profile.unit })) === 'downloaded') toast('Saved the picture. Post it from your photos.');
+  });
   d.querySelector('#retest')?.addEventListener('click', () => { d.close(); app.startPunchTest(testProblems(s.test).retest); });
   d.querySelector('[data-del]').addEventListener('click', () => {
     if (!confirm('Delete this session? The coach will recalculate everything.')) return;
