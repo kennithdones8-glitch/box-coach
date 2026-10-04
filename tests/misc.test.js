@@ -80,14 +80,14 @@ test('round timer: time the phone was asleep carries over correctly', async () =
   const t = new RoundTimer({ rounds: 3, roundSec: 180, restSec: 60, prepSec: 10, onPhase: (p, r) => phases.push(`${p}${r}`) });
   t._enter('prep');
   // Asleep for 10 s prep + a 180 s round + 30 s of rest.
-  t._last = performance.now() - 220000;
+  t._last = Date.now() - 220000;
   t._loop();
   assert.equal(t.phase, 'rest');
   assert.equal(t.round, 1);
   assert.ok(Math.abs(t.remainingMs - 30000) < 200, `rest left ${t.remainingMs}`);
   assert.ok(Math.abs(t.workMs - 180000) < 200, `work ${t.workMs}`);
   // Asleep through everything else: finishes, work counts only the rounds.
-  t._last = performance.now() - 1e6;
+  t._last = Date.now() - 1e6;
   t._loop();
   assert.equal(t.phase, 'done');
   assert.ok(Math.abs(t.workMs - 540000) < 400, `total work ${t.workMs}`);
@@ -133,4 +133,20 @@ test('the offline copy is renamed with every release, and holds every script', a
   const files = [...fs.readdirSync(dir).filter((f) => f.endsWith('.js')).map((f) => `js/${f}`),
     ...fs.readdirSync(new URL('views/', dir)).map((f) => `js/views/${f}`)];
   for (const f of files) assert.ok(sw.includes(`'${f}'`), `${f} not in the offline cache list`);
+});
+
+test('round timer: back from a locked screen, the missed phases are quiet and one wake-up says where you are', async () => {
+  const { RoundTimer } = await import('../web/js/timer.js');
+  const seen = [], wakes = [];
+  const t = new RoundTimer({ rounds: 3, roundSec: 180, restSec: 60, prepSec: 10,
+    onPhase: (p, r) => seen.push([p, r, t.catchingUp]), onWake: (p, r) => wakes.push([p, r]) });
+  t._enter('prep');
+  t._last = Date.now() - 250000; // locked for prep + round 1 + rest 1 + 0:00 into round 2
+  t._loop();
+  assert.deepEqual(seen.slice(1).map((x) => x[2]), [true, true, true], 'missed phases entered quietly');
+  assert.deepEqual(wakes, [['work', 2]]);
+  // A normal tick is not a wake-up.
+  t._last = Date.now() - 100;
+  t._loop();
+  assert.equal(wakes.length, 1);
 });

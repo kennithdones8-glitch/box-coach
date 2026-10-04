@@ -1,13 +1,18 @@
-// Round timer driven by wall-clock time so it stays accurate if the phone lags.
+// Round timer driven by wall-clock time so it stays accurate if the phone lags or sleeps.
+// Date.now(), not performance.now(): on iPhone performance.now() stops while the phone is locked,
+// so a round "paused" whenever the screen was turned off.
+const now = () => Date.now();
 
 export class RoundTimer {
-  constructor({ rounds, roundSec, restSec, prepSec = 10, onPhase = () => {}, onTick = () => {} }) {
+  constructor({ rounds, roundSec, restSec, prepSec = 10, onPhase = () => {}, onTick = () => {}, onWake = () => {} }) {
     this.rounds = rounds;
     this.roundSec = roundSec;
     this.restSec = restSec;
     this.prepSec = prepSec;
     this.onPhase = onPhase;
     this.onTick = onTick;
+    this.onWake = onWake;
+    this.catchingUp = false;
     this.phase = 'idle'; // prep | work | rest | done
     this.round = 0;
     this.remainingMs = 0;
@@ -19,7 +24,7 @@ export class RoundTimer {
 
   start() {
     this._enter(this.prepSec > 0 ? 'prep' : 'work');
-    this._last = performance.now();
+    this._last = now();
     this._id = setInterval(() => this._loop(), 100);
   }
 
@@ -36,14 +41,18 @@ export class RoundTimer {
   }
 
   _loop() {
-    const now = performance.now();
-    const dt = now - this._last;
-    this._last = now;
+    const t = now();
+    const dt = Math.max(0, t - this._last);
+    this._last = t;
     if (this.paused || this.phase === 'done') return;
     const before = Math.ceil(this.remainingMs / 1000);
     // Step through the phases: if the phone slept, several may have passed, and only time spent
     // in a round counts as work.
     let left = dt;
+    // Back from a locked screen: the phases that passed meanwhile are entered quietly (no bells or
+    // calls piling up), then onWake says where you are now.
+    const startPhase = this.phase, startRound = this.round;
+    this.catchingUp = dt > 1500;
     while (this.phase !== 'done') {
       const step = Math.max(0, Math.min(left, this.remainingMs));
       this.remainingMs -= step;
@@ -52,6 +61,9 @@ export class RoundTimer {
       if (this.remainingMs > 0) break;
       this._advance();
     }
+    const caughtUp = this.catchingUp && (this.phase !== startPhase || this.round !== startRound);
+    this.catchingUp = false;
+    if (caughtUp) this.onWake(this.phase, this.round);
     const after = Math.ceil(this.remainingMs / 1000);
     if (before !== after && this.phase !== 'done') this.onTick(this.phase, Math.max(0, after), this.round);
   }
@@ -68,7 +80,7 @@ export class RoundTimer {
 
   togglePause() {
     this.paused = !this.paused;
-    this._last = performance.now();
+    this._last = now();
     return this.paused;
   }
 
