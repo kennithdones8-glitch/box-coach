@@ -32,6 +32,7 @@ import { weeklyRecap } from './recap.js';
 import { weekStreak, newBadges } from './badges.js';
 import { DEF_MOVES, nextDefCall, judgeDefense, defenseSummary } from './defense.js';
 import { readCard, addFriend } from './friends.js';
+import { bellsReady, handBellsToPhone, takeBellsBack } from './bells.js';
 import { renderCombos, comboHTML } from './views/combos.js';
 import { parseCombo, comboText, comboLabel, comboSpeech, comboKey, punchDigits, pickCombo, judgeCalls, sessionCombos } from './combos.js';
 
@@ -46,7 +47,7 @@ function persist() {
   if (!store.save(state)) toast('Could not save — storage is full or blocked.');
 }
 
-export const APP_VERSION = '2026.10.04-2';
+export const APP_VERSION = '2026.10.04-3';
 
 const app = {
   version: APP_VERSION,
@@ -601,6 +602,7 @@ async function startSession(plan) {
   });
   live.timer.start();
   updateClock();
+  bellsReady(); // store app: ask once to ring the bells with the screen locked
 }
 
 function showCue(text) {
@@ -861,6 +863,7 @@ function scheduleBursts() {
 
 function teardownLive() {
   if (!live) return;
+  takeBellsBack();
   live.timer?.stop();
   clearInterval(live.comboTimer);
   live.burstTimers.forEach(clearTimeout);
@@ -1510,6 +1513,9 @@ view.addEventListener('click', (e) => {
 });
 
 document.addEventListener('visibilitychange', async () => {
+  // Store app: screen off mid-session, the phone rings the bells; back on, the app does again.
+  if (live?.timer && document.visibilityState === 'hidden') handBellsToPhone(live.timer);
+  if (document.visibilityState === 'visible') takeBellsBack();
   if (live && document.visibilityState === 'visible' && live.wakeLock?.released) {
     try { live.wakeLock = await navigator.wakeLock.request('screen'); } catch { /* optional */ }
   }

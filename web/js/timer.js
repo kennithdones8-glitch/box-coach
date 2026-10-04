@@ -94,3 +94,30 @@ export function fmt(sec) {
   const s = Math.max(0, Math.round(sec));
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 }
+
+// The bells still to come from now, for handing to the phone when the screen goes off (the store
+// app rings them with the screen locked). [{ at (ms since epoch), title, body }]
+export function upcomingBells(timer, now = Date.now()) {
+  if (!timer || timer.paused || timer.phase === 'done' || timer.phase === 'idle') return [];
+  const out = [];
+  let at = now + timer.remainingMs, phase = timer.phase, round = timer.round;
+  const mmss = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+  while (out.length < 40) {
+    if (phase === 'prep' || phase === 'rest') {
+      round++;
+      out.push({ at, title: `🔔 Round ${round}`, body: `Fight! ${mmss(timer.roundSec)} on the clock.` });
+      phase = 'work';
+      at += timer.roundSec * 1000;
+    } else if (round >= timer.rounds) {
+      out.push({ at, title: '🔔 Time!', body: 'Session done. Great work.' });
+      break;
+    } else if (timer.restSec > 0) {
+      out.push({ at, title: `🔔 Round ${round} done`, body: `Rest ${mmss(timer.restSec)}.` });
+      phase = 'rest';
+      at += timer.restSec * 1000;
+    } else {
+      phase = 'rest'; // no rest: the next round starts straight away
+    }
+  }
+  return out;
+}

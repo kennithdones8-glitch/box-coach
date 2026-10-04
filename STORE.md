@@ -30,6 +30,11 @@ npm run native:android   # opens Android Studio → Run, or Build → Generate S
 npm run native:ios       # opens Xcode (Mac only) → pick your team → Run / Product → Archive
 ```
 
+**Lock-screen bells** (store app only): when the screen goes off mid-session, the round bells
+still to come are handed to the phone as notifications (`web/js/bells.js`), so they ring with the
+phone locked. The first session asks for notification permission. After pulling new code, run
+`npm install` and `npm run native:ios` again so Xcode picks up the notifications plugin.
+
 No Mac? The iPhone build can run on GitHub Actions' macOS machines and upload to TestFlight. That
 needs the Apple developer account first (below); then the workflow can be added.
 
