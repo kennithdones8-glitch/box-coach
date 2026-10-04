@@ -650,3 +650,5 @@ h2 { font-weight: 650; letter-spacing: -0.015em; }
 :root[data-theme="dark"] .card { box-shadow: none; }
 .chip.on { background: var(--ink); border-color: var(--ink); color: var(--bg); }
 .live .btn.ghost { background: rgba(255, 255, 255, 0.12); border-color: transparent; color: #fff; }
+.workouts li { align-items: center; gap: 10px; }
+.workouts .btn.sm { flex: none; }

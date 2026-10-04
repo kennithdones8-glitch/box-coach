@@ -136,3 +136,21 @@ test('the week fits the boxer: no bag sessions without a bag, technique first fo
   assert.ok(kinds(buildWeek({ profile: fighter, now: monday })).includes('fightSim'));
   assert.ok(kinds(buildWeek({ profile: beginner, equipment: ['bag'], now: monday })).some((k) => k === 'fightSim' || k === 'bagVolume'));
 });
+
+test('workout library: every workout is a complete plan, and the fight simulation matches your fight', async () => {
+  const { allWorkouts } = await import('../web/js/workouts.js');
+  const { CONSTRAINTS, OPPONENTS } = await import('../web/js/library.js');
+  const list = allWorkouts({ fight: { rounds: 8, roundSec: 180, restSec: 60 } });
+  assert.ok(list.length >= 8);
+  for (const w of list) {
+    assert.ok(w.plan.rounds > 0 && w.plan.roundSec > 0 && w.plan.restSec >= 0 && w.plan.type, w.id);
+    for (const r of w.plan.rounds_ || []) {
+      assert.ok(CONSTRAINTS[r.constraint], `${w.id}: ${r.constraint}`);
+      if (r.opponent) assert.ok(OPPONENTS[r.opponent], `${w.id}: ${r.opponent}`);
+    }
+    if (w.plan.rounds_) assert.equal(w.plan.rounds_.length, w.plan.rounds, w.id);
+  }
+  const fight = list.find((w) => w.id === 'fight');
+  assert.equal(fight.plan.rounds, 8);
+  assert.equal(fight.plan.rounds_.at(-1).constraint, 'fatigueSim');
+});

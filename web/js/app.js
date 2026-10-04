@@ -34,6 +34,7 @@ import { DEF_MOVES, nextDefCall, judgeDefense, defenseSummary } from './defense.
 import { readCard, addFriend } from './friends.js';
 import { bellsReady, handBellsToPhone, takeBellsBack } from './bells.js';
 import { CoachVoice } from './coachvoice.js';
+import { allWorkouts } from './workouts.js';
 import { line as voiceLine, hasLine } from './voice.js';
 import { renderCombos, comboHTML } from './views/combos.js';
 import { parseCombo, comboText, comboLabel, comboSpeech, comboKey, punchDigits, pickCombo, judgeCalls, sessionCombos } from './combos.js';
@@ -390,6 +391,12 @@ function renderTrain() {
       <p class="small muted" style="margin:4px 0 8px">I call slip, roll or block every few seconds; the camera checks you did it in time. Block = both gloves up to your forehead.</p>
       <button class="btn ghost block" id="defenseDrill" type="button">Start defense drill</button>
     </section>
+    <section class="card">
+      <div class="card-head"><h2>Workouts</h2><span class="muted small">one tap to start</span></div>
+      <ul class="rows workouts">${allWorkouts(state.profile).map((w) => `
+        <li><span class="row-ico">${w.icon}</span><div class="grow"><b>${esc(w.name)}</b> <span class="muted small">· ${esc(w.level)}</span><br><span class="small muted">${esc(w.detail)}</span></div>
+        <button class="btn primary sm" type="button" data-workout="${w.id}">Start</button></li>`).join('')}</ul>
+    </section>
     <div class="chips">
         <button class="chip" data-preset="fight">Fight sim ${f.rounds}×${fmt(f.roundSec)}</button>
         <button class="chip" data-preset="6x3">6×3</button>
@@ -464,6 +471,10 @@ function renderTrain() {
   });
   $('#punchTest').addEventListener('click', () => app.startPunchTest());
   $('#defenseDrill').addEventListener('click', () => app.startDefense());
+  $$('[data-workout]').forEach((b) => b.addEventListener('click', () => {
+    const w = allWorkouts(state.profile).find((x) => x.id === b.dataset.workout);
+    if (w) startSession({ tracking: state.settings.tracking, combos: state.settings.combos, constraints: !!w.plan.rounds_, focus: null, ...structuredClone(w.plan), workout: w.id });
+  }));
   $$('[data-preset]').forEach((b) => b.addEventListener('click', () => {
     const presets = {
       fight: { type: 'bag', ...f, comboLevel: 3 },
@@ -978,6 +989,7 @@ function finishSession() {
     benchmark: l.plan.benchmark || undefined,
     test: l.plan.test ? finishTest(l) : undefined,
     spot: l.analyzer?.sig ? { ...l.analyzer.sig } : undefined, // where the camera was
+    workout: l.plan.workout || undefined,
     defense: l.plan.defense && l.defRounds.length ? defenseSummary(l.defRounds) : undefined,
     adjustments: l.adjustments.length ? l.adjustments : undefined,
     rpe: 7, notes: '',
@@ -1107,6 +1119,14 @@ function testsCardHTML() {
 }
 
 const TEST_NAMES = { jab: 'Jabs', cross: 'Crosses', leadHook: 'Lead hooks', rearHook: 'Rear hooks', leadUppercut: 'Lead uppercuts', rearUppercut: 'Rear uppercuts' };
+// The name a session goes by: the punch test, the drill or workout it was, else its type.
+function sessionName(s) {
+  if (s.test) return 'Punch test';
+  if (s.defense) return 'Defense drill';
+  const w = s.workout && allWorkouts(state.profile).find((x) => x.id === s.workout);
+  return w ? w.name : ALL_TYPES[s.type] || s.type;
+}
+
 function testHTML(session) {
   const x = session.test;
   if (!x) return '';
@@ -1162,7 +1182,7 @@ function renderSummary(session) {
   view.innerHTML = `
     <section class="card">
       <div class="eyebrow">Session complete · ${fmt(session.workSec)} of work</div>
-      <h1>${session.test ? 'Punch test' : session.defense ? 'Defense drill' : ALL_TYPES[session.type]}</h1>
+      <h1>${esc(sessionName(session))}</h1>
       ${events.newPRs.length ? `<div class="pr">🏆 New personal record: ${events.newPRs.map(esc).join(', ')}</div>` : ''}
       ${(() => { const nb = newBadges(state.sessions, session, state.profile); return nb.length ? `<div class="pr">🏅 New badge${nb.length > 1 ? 's' : ''}: ${nb.map((b) => `${b.icon} ${esc(b.name)}`).join(' · ')}</div>` : ''; })()}
       ${events.resolved.length ? `<div class="pr">✅ Habit fixed: ${events.resolved.map((k) => esc(INSIGHTS[k].text)).join(' ')}</div>` : ''}
@@ -1496,7 +1516,7 @@ function renderLog() {
         <button class="row log-item" data-id="${s.id}">
           <span class="row-ico">${TYPE_ICON[s.type] || '•'}</span>
           <div class="log-main">
-            <b>${s.test ? 'Punch test' : s.defense ? 'Defense drill' : ALL_TYPES[s.type] || esc(s.type)}${s.source === 'video' ? ' · video' : ''}</b>
+            <b>${esc(sessionName(s))}${s.source === 'video' ? ' · video' : ''}</b>
             <span>${fmtDate(s.date)} · ${s.durationMin ? `${s.durationMin} min` : `${s.completedRounds ?? 0}/${s.plan?.rounds ?? 0} rds`}${s.punches?.total ? ` · ${s.punches.total} punches` : ''}${s.hits ? ` · ${Object.values(s.hits).reduce((a, b) => a + b, 0)} hits` : ''}${s.rpe ? ` · RPE ${s.rpe}` : ''}</span>
           </div>
           ${s.scores?.overall != null ? `<span class="badge ${scoreClass(s.scores.overall)}">${s.scores.overall}</span>` : '<span class="chev">›</span>'}
@@ -1548,7 +1568,7 @@ function openDetail(id) {
   d.innerHTML = `
     <div class="dialog-body">
       <div class="eyebrow">${fmtDate(s.date)}</div>
-      <h2>${s.test ? 'Punch test' : s.defense ? 'Defense drill' : ALL_TYPES[s.type] || esc(s.type)}</h2>
+      <h2>${esc(sessionName(s))}</h2>
       ${testHTML(s)}
       ${defenseHTML(s)}
       ${sessionDetailHTML(s, s.feedback)}
