@@ -43,7 +43,7 @@ function persist() {
   if (!store.save(state)) toast('Could not save — storage is full or blocked.');
 }
 
-export const APP_VERSION = '2026.10.03-1';
+export const APP_VERSION = '2026.10.04-1';
 
 const app = {
   version: APP_VERSION,
@@ -577,7 +577,7 @@ async function startSession(plan) {
 
   live.timer = new RoundTimer({
     rounds: plan.rounds, roundSec: plan.roundSec, restSec: plan.restSec, prepSec: plan.test ? 20 : 10, // time to place the phone
-    onPhase, onTick,
+    onPhase, onTick, onWake,
   });
   live.timer.start();
   updateClock();
@@ -638,9 +638,19 @@ function roundReport(n) {
   return bits.join(' ');
 }
 
+// Back from a locked screen: say where the session is now.
+function onWake(phase, round) {
+  if (!live || phase === 'done') return;
+  const sec = Math.ceil(live.timer.remainingMs / 1000), m = Math.floor(sec / 60), r = sec % 60;
+  const left = [m ? `${m} minute${m === 1 ? '' : 's'}` : '', r ? `${r} second${r === 1 ? '' : 's'}` : ''].filter(Boolean).join(' ') || 'no time';
+  audio.say(phase === 'work' ? `Round ${round}. ${left} left.` : phase === 'rest' ? `Rest. ${left} left.` : 'Get ready.', { interrupt: true });
+}
+
 function onPhase(phase, round) {
   if (!live) return;
   const t = live.timer;
+  // Rounds that ended while the phone was locked: keep the counts, skip the bells and calls.
+  const quiet = t.catchingUp;
   $('#livePhase').textContent = { prep: 'PREP', work: 'FIGHT', rest: 'REST', done: 'DONE' }[phase];
   $('#live').dataset.phase = phase;
   $('#liveRound').textContent = phase === 'prep' ? 'Get ready' : `Round ${round} / ${t.rounds}`;
@@ -649,24 +659,24 @@ function onPhase(phase, round) {
   if (live.tracker) live.tracker.maxFps = phase === 'work' ? null : phase === 'prep' ? 15 : 6;
   if (phase === 'prep') {
     const first = roundPlan(1);
-    audio.say(`Get ready.${first ? ` Round one: ${CONSTRAINTS[first.constraint].name}.` : live.plan.focus ? ` Focus: ${AREAS[live.plan.focus]}.` : ''}`, { interrupt: true });
+    if (!quiet) audio.say(`Get ready.${first ? ` Round one: ${CONSTRAINTS[first.constraint].name}.` : live.plan.focus ? ` Focus: ${AREAS[live.plan.focus]}.` : ''}`, { interrupt: true });
     showConstraint(first);
   }
   if (phase === 'work') {
-    audio.bell(1);
-    audio.vibrate([200]);
+    // No rest between rounds: close the last one here (the rest phase normally does).
+    if (round > 1 && live.perRound.length < round - 1) { live.completedRounds = round - 1; closeRound(); }
+    if (!quiet) { audio.bell(1); audio.vibrate([200]); }
     live.roundPunches = 0;
     live.analyzer?.startRound();
     const rp = roundPlan(round);
     showConstraint(rp);
-    if (rp) setTimeout(() => audio.say(`${CONSTRAINTS[rp.constraint].name}.${rp.opponent ? ` Opponent: ${OPPONENTS[rp.opponent].name}.` : ''}`, { interrupt: true }), 600);
+    if (rp && !quiet) setTimeout(() => audio.say(`${CONSTRAINTS[rp.constraint].name}.${rp.opponent ? ` Opponent: ${OPPONENTS[rp.opponent].name}.` : ''}`, { interrupt: true }), 600);
     if (rp && CONSTRAINTS[rp.constraint].burst) scheduleBursts();
     if (live.plan.combos && live.plan.type !== 'rope') scheduleCombos(rp);
     if (live.plan.test) scheduleTest();
   }
   if (phase === 'rest') {
-    audio.bell(1);
-    audio.vibrate([200, 100, 200]);
+    if (!quiet) { audio.bell(1); audio.vibrate([200, 100, 200]); }
     live.completedRounds = round;
     closeRound();
     let msg = roundReport(round);
@@ -674,7 +684,7 @@ function onPhase(phase, round) {
     if (adj) msg += ` ${adj}`;
     showCue(msg);
     showConstraint(roundPlan(round + 1));
-    setTimeout(() => audio.say(msg, { interrupt: true }), 1500);
+    if (!quiet) setTimeout(() => audio.say(msg, { interrupt: true }), 1500);
   }
   if (phase === 'done') {
     audio.bell(3);
