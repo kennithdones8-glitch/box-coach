@@ -1,7 +1,7 @@
 import * as store from './store.js';
 import {
   AREAS, TARGETS, ALL_TYPES, BOXING_TYPES, INSIGHTS,
-  scoreSession, feedback, updateMemory, nextCombo, comboToSpeech, weekSummary, outputPpm,
+  scoreSession, feedback, updateMemory, nextCombo, comboToSpeech, weekSummary, outputPpm, speedText,
 } from './coach.js';
 import { FormAnalyzer, combineRounds, PUNCH_NAMES } from './form.js';
 import { requestMotionPermission, startMotion, motionSupported } from './motion.js';
@@ -29,6 +29,7 @@ import { addExamples, spotModel } from './personal.js';
 import { testPlan, scoreTest, testLabels, testHistory, testProblems } from './punchtest.js';
 import { SetupWatch, SETUP_TEXT } from './camcheck.js';
 import { weeklyRecap } from './recap.js';
+import { weekStreak, newBadges } from './badges.js';
 import { renderCombos, comboHTML } from './views/combos.js';
 import { parseCombo, comboText, comboLabel, comboSpeech, comboKey, punchDigits, pickCombo, judgeCalls, sessionCombos } from './combos.js';
 
@@ -43,7 +44,7 @@ function persist() {
   if (!store.save(state)) toast('Could not save — storage is full or blocked.');
 }
 
-export const APP_VERSION = '2026.10.04-1';
+export const APP_VERSION = '2026.10.04-2';
 
 const app = {
   version: APP_VERSION,
@@ -127,12 +128,11 @@ function route() {
 }
 window.addEventListener('hashchange', route);
 
+// Weeks in a row you hit your training days: rest days don't break it.
 function renderStreak() {
-  const s = state.memory.streak;
-  const today = localDay(new Date());
-  const alive = s.lastDay && (new Date(today) - new Date(s.lastDay)) / 86400000 <= 1;
+  const wk = weekStreak(state.sessions, state.profile.weeklyGoal);
   const phase = app.model().phase;
-  $('#streak').innerHTML = `${phase.camp ? `<span class="camp-pill">🥊 ${phase.weeksOut}w out</span>` : ''}${alive && s.count > 0 ? ` 🔥 ${s.count}` : ''}`;
+  $('#streak').innerHTML = `${phase.camp ? `<span class="camp-pill">🥊 ${phase.weeksOut}w out</span>` : ''}${wk > 0 ? ` <span title="Weeks in a row you hit ${state.profile.weeklyGoal} training days">🔥 ${wk} wk</span>` : ''}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -955,6 +955,7 @@ function sessionDetailHTML(s, fb) {
       ${sc.overall != null ? scoreChip('Overall', sc.overall) : ''}
       ${s.punches?.total ? scoreChip('Punches', s.punches.total, -1) : ''}
       ${outputPpm(s) != null ? scoreChip('Per min', outputPpm(s), -1) : ''}
+      ${s.form?.speed != null ? scoreChip('Hand speed', speedText(s.form.speed, state.profile.unit), -1) : ''}
       ${s.completedRounds != null ? scoreChip('Rounds', `${s.completedRounds}/${s.plan?.rounds ?? s.completedRounds}`, -1) : ''}
     </div>
     ${s.source === 'video' ? `<p class="small muted">From video analysis${s.corrections ? ` · ${s.corrections} detections corrected by you` : ''}.</p>` : ''}
@@ -976,6 +977,7 @@ function sessionDetailHTML(s, fb) {
     ${s.form?.comboShare != null ? `<p class="small muted">${s.form.comboShare}% of punches thrown in combinations · average combo ${s.form.avgComboLen ?? '–'} punches</p>` : ''}
     ${combosHTML(s)}
     ${roundsTable(s)}
+    ${s.form?.speed != null ? `<p class="small muted">Hand speed: ${speedText(s.form.speed, state.profile.unit)} typical · ${speedText(s.form.topSpeed, state.profile.unit)} on your fastest${s.form.speedDrop != null ? ` · ${s.form.speedDrop > 0 ? `${s.form.speedDrop}% slower` : 'no slower'} by the last round` : ''} (camera estimate: compare it with yourself)</p>` : ''}
     ${s.form?.headPerMin != null ? `<p class="small muted">Head movement: ${s.form.headPerMin} slips, rolls or pulls per minute</p>` : ''}
     ${s.form?.handReturnMs != null ? `<p class="small muted">Hand return: lead ${s.form.leadReturnMs ?? '–'} ms · rear ${s.form.rearReturnMs ?? '–'} ms · rear hand dropped on ${s.form.rearDropPct ?? 0}% of lead punches</p>` : ''}
     ${s.intensity ? `<p class="small muted">Average punch intensity: ${s.intensity} m/s²</p>` : ''}
@@ -1034,6 +1036,7 @@ function renderSummary(session) {
       <div class="eyebrow">Session complete · ${fmt(session.workSec)} of work</div>
       <h1>${session.test ? 'Punch test' : ALL_TYPES[session.type]}</h1>
       ${events.newPRs.length ? `<div class="pr">🏆 New personal record: ${events.newPRs.map(esc).join(', ')}</div>` : ''}
+      ${(() => { const nb = newBadges(state.sessions, session, state.profile); return nb.length ? `<div class="pr">🏅 New badge${nb.length > 1 ? 's' : ''}: ${nb.map((b) => `${b.icon} ${esc(b.name)}`).join(' · ')}</div>` : ''; })()}
       ${events.resolved.length ? `<div class="pr">✅ Habit fixed: ${events.resolved.map((k) => esc(INSIGHTS[k].text)).join(' ')}</div>` : ''}
       ${events.confirmed.length ? `<div class="pr warn">🧠 I'm noticing a pattern: ${events.confirmed.map((k) => esc(INSIGHTS[k].text)).join(' ')}</div>` : ''}
       ${testHTML(session)}

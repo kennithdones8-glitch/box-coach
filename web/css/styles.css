@@ -582,3 +582,9 @@ details.card-lite > summary::-webkit-details-marker { display: none; }
 /* The main Start button stays in reach above the tab bar while you scroll the options. */
 .start-sticky { position: sticky; bottom: calc(var(--tabs-h) + env(safe-area-inset-bottom) + 10px); z-index: 4; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.18); }
 .recap h2 { font-size: 1.05rem; margin: 2px 0 8px; }
+
+/* Badges */
+.badges { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 10px; }
+.badge-chip { background: var(--surface-2); border-radius: 999px; padding: 6px 10px; font-size: 0.85rem; font-weight: 700; }
+.next-badges li { align-items: flex-start; }
+.next-badges .bar { margin-top: 6px; }
