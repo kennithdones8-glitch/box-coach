@@ -10,7 +10,7 @@ export function defaultState() {
       name: '', stance: 'orthodox', level: 'advanced', goal: 'compete', weeklyGoal: 6, sensitivity: 1,
       fight: { rounds: 6, roundSec: 180, restSec: 60 }, fightDate: '', opponentStyle: '', targetWeight: null, unit: 'lb',
     },
-    settings: { voice: true, combos: false, comboInterval: 6, tracking: 'camera', cues: true, voiceV2: true },
+    settings: { voice: true, combos: false, comboInterval: 6, tracking: 'camera', cues: true, voiceV2: true, simple: true },
     sessions: [],
     memory: emptyMemory(),
     weights: [],
@@ -36,6 +36,8 @@ function merge(base, data) {
   if (data.profile?.unit === 'kg' && !(data.weights || []).length) data.profile.unit = 'lb';
   // The voice now gives form fixes only; combo calls are opt-in (once, for older saves).
   if (data.settings && !data.settings.voiceV2) data.settings = { ...data.settings, combos: false, voiceV2: true };
+  // Simple mode is for new installs; anyone who already uses the app keeps every screen.
+  if (data.settings && data.settings.simple === undefined) data.settings = { ...data.settings, simple: false };
   return {
     ...base,
     ...data,

@@ -305,6 +305,7 @@ function settings(el, app) {
     <section class="card">
       <form id="profile" class="form">
         <details class="set-group" open><summary>You</summary>
+        <label class="switch"><input type="checkbox" name="simple" ${st.simple ? 'checked' : ''}> <span>Simple mode: just Today, Train and Progress</span></label>
         <label>Name<input name="name" value="${esc(profile.name)}" maxlength="40" placeholder="Optional"></label>
         <div class="row2">
           <label>Stance<select name="stance">${opt('orthodox', profile.stance, 'Orthodox')}${opt('southpaw', profile.stance, 'Southpaw')}</select></label>
@@ -405,10 +406,11 @@ function settings(el, app) {
     // Never asked and nothing ticked: leave it unset, so the plan stays as it was.
     const own = [...f.querySelectorAll('[name=own]:checked')].map((x) => x.value);
     if (own.length || profile.equipment) app.state.profile.equipment = own;
-    app.state.settings = { ...st, voice: f.voice.checked, cues: f.cues.checked, combos: f.combos.checked, comboInterval: +f.comboInterval.value };
+    app.state.settings = { ...st, simple: f.simple.checked, voice: f.voice.checked, cues: f.cues.checked, combos: f.combos.checked, comboInterval: +f.comboInterval.value };
     app.rebuildPlan();
     app.persist();
     toast('Saved.');
+    if (f.simple.checked !== !!st.simple) app.rerender(); // tabs change with simple mode
   });
   $('#aiForm', el).addEventListener('submit', (e) => {
     e.preventDefault();

@@ -16,7 +16,7 @@ import { buildContext, trainToday, aiObservations, generateRounds, rankProblems,
 import { stepHypothesis } from './hypotheses.js';
 import { recoveryStatus, readinessOf, baselineHr } from './recovery.js';
 import { fatigueMap } from './analysis.js';
-import { $, $$, esc, fmtDate, shortDate, toast, scoreClass, scoreChip, subnav, subOf, pageHead, PROGRESS_SUBS } from './ui.js';
+import { $, $$, esc, fmtDate, shortDate, toast, scoreClass, scoreChip, subnav, subOf, pageHead, PROGRESS_SUBS, setSimple, isSimple } from './ui.js';
 import { reviewFieldsHTML, bindReview, readReview } from './views/review.js';
 import { buildReport, reportSize } from './report.js';
 import { safetyNotes, isStandalone, isIOS, askPersist } from './safety.js';
@@ -47,7 +47,7 @@ function persist() {
   if (!store.save(state)) toast('Could not save — storage is full or blocked.');
 }
 
-export const APP_VERSION = '2026.10.04-4';
+export const APP_VERSION = '2026.10.04-5';
 
 const app = {
   version: APP_VERSION,
@@ -132,6 +132,7 @@ function savePendingSummary() {
 
 function route() {
   savePendingSummary();
+  setSimple(state.settings.simple);
   const name = (location.hash.slice(1) || 'home').split('/')[0];
   const fn = routes[name] || renderHome;
   routeTok++;
@@ -179,7 +180,7 @@ function renderHome() {
   // Short, prioritised notes from the coach.
   const notes = [];
   if (phase.camp) notes.push(['🥊', `${phase.name}`, phase.priorities.join(' · '), '#plan']);
-  if (ctx.proposals.length) notes.push(['🧪', 'An idea to test', ctx.proposals[0].text, '#coach/hypotheses']);
+  if (ctx.proposals.length && !isSimple()) notes.push(['🧪', 'An idea to test', ctx.proposals[0].text, '#coach/hypotheses']);
   if (ws?.status === 'fast' || ws?.status === 'behind') notes.push(['⚖️', ws.status === 'fast' ? 'Cutting weight too fast' : 'Weight trending above target', ws.message, '#plan/weight']);
   notes.unshift(...safetyNotes({ standalone: isStandalone(), ios: isIOS(), sessions: sessions.length, lastBackup: state.settings.lastBackup }));
   const decay = ctx.decay[0];

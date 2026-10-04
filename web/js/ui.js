@@ -30,7 +30,15 @@ export function scoreChip(label, v, target) {
 export const opt = (v, cur, label) => `<option value="${esc(v)}" ${String(v) === String(cur) ? 'selected' : ''}>${esc(label)}</option>`;
 
 // Segmented sub-navigation for a tab, driven by the hash (#tab/sub).
-export function subnav(tab, items, current) {
+// Simple mode: the screens most people need. The rest stay a switch away in Settings (and a
+// link straight to one of them still shows it).
+const ADVANCED = { progress: ['analysis', 'style', 'timeline'], train: ['study'] };
+let simple = false;
+export const setSimple = (on) => { simple = !!on; document.body.classList.toggle('simple', simple); };
+export const isSimple = () => simple;
+
+export function subnav(tab, all, current) {
+  const items = simple ? all.filter(([k]) => k === current || !ADVANCED[tab]?.includes(k)) : all;
   return `<nav class="subnav" style="--n:${items.length}">${items.map(([k, label]) => `<a href="#${tab}/${k}" class="${k === current ? 'on' : ''}" ${k === current ? 'aria-current="page"' : ''}>${esc(label)}</a>`).join('')}</nav>`;
 }
 
