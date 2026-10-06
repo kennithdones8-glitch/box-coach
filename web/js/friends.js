@@ -33,8 +33,8 @@ const b64 = (str) => btoa(String.fromCharCode(...new TextEncoder().encode(str)))
 const unb64 = (s) => new TextDecoder().decode(Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/')), (c) => c.charCodeAt(0)));
 
 export function shareLink(card, here = globalThis.location) {
-  // Inside the store app the page address is internal to the phone: use the public one.
-  const base = here?.protocol?.startsWith('http') ? here.href.split('#')[0] : PUBLIC;
+  // Only a real web address is shareable: the store apps run on capacitor:// or https://localhost.
+  const base = here?.protocol?.startsWith('http') && here.hostname && here.hostname !== 'localhost' ? here.href.split('#')[0] : PUBLIC;
   return `${base}#friend/${b64(JSON.stringify(card))}`;
 }
 

@@ -2,7 +2,7 @@
 import { SKILLS, SKILL_GROUPS, OPPONENTS, PATTERN_LIBRARY } from '../library.js';
 import { evidenceFor, proofOfImprovement, styleProfile, developmentTimeline, compareThen, levelWord } from '../skills.js';
 import { fatigueMap, medAnalysis, DIM_NAMES } from '../analysis.js';
-import { BOXING_TYPES, TARGETS, outputPpm, speedText } from '../coach.js';
+import { BOXING_TYPES, TARGETS, outputPpm, speedText, speedIn } from '../coach.js';
 import { lineChart } from '../chart.js';
 import { badges } from '../badges.js';
 import { myCard, shareLink, COMPARE } from '../friends.js';
@@ -273,8 +273,7 @@ function charts(el, app) {
   }));
   lineChart($('#c-overall'), pts((s) => s.scores?.overall), { max: 100, label: 'Overall score' });
   lineChart($('#c-ppm'), pts((s) => outputPpm(s)), { label: 'Punches per minute' });
-  const k = state.profile.unit === 'kg' ? 3.6 : 2.237;
-  if ($('#c-speed')) lineChart($('#c-speed'), pts((s) => (s.form?.speed != null ? Math.round(s.form.speed * k) : null)), { label: 'Hand speed' });
+  if ($('#c-speed')) lineChart($('#c-speed'), pts((s) => (s.form?.speed != null ? speedIn(s.form.speed, state.profile.unit) : null)), { label: 'Hand speed' });
   lineChart($('#c-guard'), pts((s) => s.form?.guard), { max: 100, unit: '%', target: TARGETS.guard, label: 'Guard up percent' });
   lineChart($('#c-stance'), pts((s) => s.form?.stance), { max: 100, unit: '%', target: TARGETS.stance, label: 'Stance percent' });
   lineChart($('#c-weeks'), weeks, { unit: ' min', label: 'Minutes per week' });

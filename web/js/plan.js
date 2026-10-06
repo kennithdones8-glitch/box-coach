@@ -173,10 +173,11 @@ export function buildWeek({ profile = {}, equipment = null, memory = {}, session
   if (phase.key === 'camp') queue = ['fightSim', 'bagVolume', ...queue.filter((k) => k !== 'fightSim' && k !== 'bagVolume')];
   // No bag at home and no gym: no bag sessions. Not training for a fight (or new to boxing):
   // technique comes before fight simulations. (equipment null: not asked yet, plan as before.)
-  if (equipment && !equipment.includes('bag') && !equipment.includes('gym') && !gym.length) queue = queue.filter((k) => k !== 'fightSim' && k !== 'bagVolume');
   if ((profile.level === 'beginner' || (profile.goal && profile.goal !== 'compete')) && phase.key !== 'camp') queue = ['shadowTech', ...queue.filter((k) => k !== 'shadowTech')];
   const focus = memory?.focus?.area;
   if (focus === 'output') queue = ['fightSim', 'bagVolume', ...queue.filter((k) => k !== 'fightSim' && k !== 'bagVolume')];
+  // Last, so nothing above can put them back: no bag and no gym means no bag sessions.
+  if (equipment && !equipment.includes('bag') && !equipment.includes('gym') && !gym.length) queue = queue.filter((k) => k !== 'fightSim' && k !== 'bagVolume');
 
   const byDay = Array.from({ length: 7 }, () => []);
   for (const d of gym) byDay[d].push('gym');
