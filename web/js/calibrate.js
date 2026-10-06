@@ -71,7 +71,7 @@ export function calibrateFromCombo(punches, tokens, prior = null) {
   if (nStraight >= 4 && nHook >= 4) {
     let best = null;
     for (let T = 1; T <= 4.001; T += 0.1) {
-      const errors = sh.filter((m) => (classifyPunch(m.e.f, m.e.axis, { ratio: T }).kind === 'straight') !== (m.want === 'straight')).length;
+      const errors = sh.filter((m) => (classifyPunch({ ...m.e.f, role: m.e.role }, m.e.axis, { ratio: T }).kind === 'straight') !== (m.want === 'straight')).length;
       const score = errors + Math.abs(T - res.before) * 0.01; // ties go to the current setting
       if (!best || score < best.score) best = { T, score, errors };
     }

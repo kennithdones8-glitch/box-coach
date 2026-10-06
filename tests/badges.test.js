@@ -39,3 +39,15 @@ test('share card: the session in four big numbers, with its name and new badges'
   assert.equal(d.sub, '18 min of work');
   assert.deepEqual(d.badges, ['👊 10,000 punches']);
 });
+
+test('streak badges: consecutive weeks at your training days; a short week starts again', () => {
+  const day = (w, d) => at(new Date(Date.UTC(2026, 6, 6 + w * 7 + d)).toISOString().slice(0, 10)); // Mondays from Jul 6
+  const weeks = (n, from = 0) => Array.from({ length: n }, (_, w) => [0, 2, 4].map((d) => day(from + w, d))).flat();
+  const b = (s) => Object.fromEntries(badges(s, { weeklyGoal: 3 }).map((x) => [x.id, x]));
+  assert.ok(b(weeks(5)).weeks5.earned);
+  assert.equal(b(weeks(4)).weeks5.earned, null);
+  // 3 weeks, a week off, 3 more: best is 3.
+  const gap = [...weeks(3), ...weeks(3, 4)];
+  assert.ok(b(gap).weeks3.earned);
+  assert.equal(b(gap).weeks5.have, 3);
+});

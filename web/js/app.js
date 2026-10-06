@@ -51,7 +51,7 @@ function persist() {
   if (!store.save(state)) toast('Could not save — storage is full or blocked.');
 }
 
-export const APP_VERSION = '2026.10.05-1';
+export const APP_VERSION = '2026.10.06-2';
 
 const app = {
   version: APP_VERSION,
@@ -136,6 +136,7 @@ function savePendingSummary() {
 
 function route() {
   savePendingSummary();
+  document.body.classList.remove('touring'); // renderTour puts it back if the tour is showing
   setSimple(state.settings.simple);
   const name = (location.hash.slice(1) || 'home').split('/')[0];
   const fn = routes[name] || renderHome;
@@ -182,7 +183,7 @@ function renderTour() {
     <button class="linkbtn small" id="tourSkip" type="button">Skip</button>
   </section>`;
   const track = $('#tourTrack');
-  const at = () => Math.round(track.scrollLeft / track.clientWidth);
+  const at = () => (track.clientWidth ? Math.round(track.scrollLeft / track.clientWidth) : 0);
   const done = () => { state.profile.toured = true; persist(); document.body.classList.remove('touring'); renderHome(); };
   const sync = () => {
     $$('.tour-dots span').forEach((d, i) => d.classList.toggle('on', i === at()));
@@ -538,7 +539,9 @@ async function startSession(plan) {
   if (live) return;
   audio.unlockAudio();
   audio.setVoice(state.settings.voice, state.settings.voiceName);
-  audio.preloadVoice(); // the recorded coach's clips, ready before the first call
+  // The recorded coach's index before the first line is said (on a slow connection, not for long).
+  await Promise.race([audio.loadVoicePack(), new Promise((r) => setTimeout(r, 1500))]);
+  audio.preloadVoice(); // and its clips, in the background
   let tracking = plan.tracking;
   if (tracking === 'motion') {
     try {
@@ -599,13 +602,11 @@ async function startSession(plan) {
       labels: state.profile.punchLabels || null,
       onCue: (key, text) => {
         if (!state.settings.cues || live?.plan.test || live?.plan.defense) return; // drill calls need a clear voice
-        live?.coach?.cued(key, performance.now()); // watch for the fix, to praise it
         if (hasLine(key)) text = voiceLine(key); // said a few different ways, like a person
         showCue(text);
-        // Reminders never talk over a combo call: skipped while one is being said or due.
-        if (live?.nextCallAt && Math.abs(live.nextCallAt - performance.now()) < 2500) return;
-        if (performance.now() - (live?.lastCallAt || 0) < 3000) return;
+        if (nearCall()) return; // reminders never talk over a combo call
         audio.say(text);
+        live?.coach?.cued(key, performance.now()); // said out loud: watch for the fix, to praise it
       },
       onPunch: (type) => countPunch(type),
     });
@@ -822,16 +823,20 @@ function showConstraint(rp) {
   el.innerHTML = `<b>R${rp.round}: ${esc(c.name)}</b>${rp.opponent ? `<span> vs ${esc(OPPONENTS[rp.opponent].name)}</span>` : ''}<p>${esc(c.text)}</p>`;
 }
 
+// A combo call is being said or is due: other speech waits (or takes the next call's slot).
+function nearCall(now = performance.now()) {
+  return !!live && ((live.nextCallAt && Math.abs(live.nextCallAt - now) < 2500) || now - (live.lastCallAt || 0) < 3000);
+}
+
 function onTick(phase, secLeft) {
   updateClock();
   // Full coach: a push or a word of praise, never over a combo call.
   if (phase === 'work' && live?.coach && !live.timer.paused) {
     const now = performance.now();
-    const nearCall = (live.nextCallAt && Math.abs(live.nextCallAt - now) < 2500) || now - (live.lastCallAt || 0) < 3000;
     const key = live.coachPending ? null : live.coach.tick(now, { seen: live.analyzer?.seen, leftMs: live.timer.remainingMs });
     const line = key && voiceLine(key);
     // In the gap between calls say it now; otherwise it takes the next call's place.
-    if (line && !nearCall) { showCue(line); audio.say(line); } else if (line) live.coachPending = line;
+    if (line && !nearCall()) { showCue(line); audio.say(line); } else if (line) live.coachPending = line;
   }
   if (phase === 'work' && secLeft === 10) audio.clap();
   if ((phase === 'rest' || phase === 'prep') && secLeft <= 3 && secLeft > 0) audio.tick();
@@ -937,7 +942,8 @@ function scheduleDefense() {
   const end = performance.now() + live.plan.roundSec * 1000 - 2000;
   const prev = [];
   const call = () => {
-    if (!live || live.timer.phase !== 'work' || live.timer.paused) return;
+    if (!live || live.timer.phase !== 'work') return;
+    if (live.timer.paused) { live.burstTimers.push(setTimeout(call, 1000)); return; } // resume where it left off
     const move = nextDefCall(prev);
     prev.push(move);
     live.defCalls.push({ t: performance.now(), move });
@@ -977,7 +983,7 @@ function teardownLive() {
   live.stopMotion?.();
   live.tracker?.stop();
   live.wakeLock?.release?.();
-  window.speechSynthesis?.cancel();
+  audio.stopSpeech();
   $('#live').hidden = true;
   document.body.classList.remove('in-live');
 }
@@ -1044,7 +1050,7 @@ $('#livePause').addEventListener('click', () => {
   const p = live.timer.togglePause();
   $('#livePause').textContent = p ? 'Resume' : 'Pause';
   if (live.tracker) live.tracker.maxFps = p ? 3 : live.timer.phase === 'work' ? null : 6;
-  if (p) window.speechSynthesis?.cancel();
+  if (p) audio.stopSpeech();
 });
 $('#liveSkip').addEventListener('click', () => live?.timer?.skip());
 $('#liveEnd').addEventListener('click', () => {
@@ -1441,7 +1447,7 @@ function renderPlan() {
     </section>
 
     <section class="card">
-      ${(() => { const empty = DAY_NAMES.filter((_, d) => !plan.items.some((i) => i.day === d)); return empty.length ? `<p class="small muted" style="margin:0 0 6px">${empty.length === 1 ? empty[0] : `${empty[0]}–${empty.at(-1)}`}: before this plan started.</p>` : ''; })()}
+      ${(() => { const empty = DAY_NAMES.filter((_, d) => !plan.items.some((i) => i.day === d)); const run = empty.length > 1 && DAY_NAMES.indexOf(empty.at(-1)) - DAY_NAMES.indexOf(empty[0]) === empty.length - 1; return empty.length ? `<p class="small muted" style="margin:0 0 6px">${run ? `${empty[0]}–${empty.at(-1)}` : empty.join(', ')}: before this plan started.</p>` : ''; })()}
       <ul class="week">${DAY_NAMES.map((name, d) => {
         const items = plan.items.filter((i) => i.day === d);
         if (!items.length) return ''; // days before the plan started: one line above

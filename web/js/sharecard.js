@@ -85,7 +85,10 @@ export async function shareCard(d) {
   const blob = await new Promise((res) => c.toBlob(res, 'image/png'));
   const file = new File([blob], 'boxcoach-session.png', { type: 'image/png' });
   if (navigator.canShare?.({ files: [file] })) {
-    try { await navigator.share({ files: [file], title: 'My BoxCoach session' }); return 'shared'; } catch { return 'cancelled'; }
+    try { await navigator.share({ files: [file], title: 'My BoxCoach session' }); return 'shared'; } catch (err) {
+      // Closing the share sheet is fine; a refusal (the tap counted as too old after drawing) isn't.
+      if (err?.name !== 'NotAllowedError') return 'cancelled';
+    }
   }
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob); a.download = file.name; a.click();

@@ -431,4 +431,5 @@ export function weekSummary(history, now = new Date()) {
 }
 
 // Hand speed as words, in the boxer's units (the camera's estimate: best compared with yourself).
-export const speedText = (ms, unit = 'lb') => (ms == null ? '–' : unit === 'kg' ? `${Math.round(ms * 3.6)} km/h` : `${Math.round(ms * 2.237)} mph`);
+export const speedIn = (ms, unit = 'lb') => Math.round(ms * (unit === 'kg' ? 3.6 : 2.237));
+export const speedText = (ms, unit = 'lb') => (ms == null ? '–' : `${speedIn(ms, unit)} ${unit === 'kg' ? 'km/h' : 'mph'}`);

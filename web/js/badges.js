@@ -36,20 +36,40 @@ const LADDER = [
   ['engine', '⚡', 'Fast to the bell', 'Keep your hand speed (within 5%) over 3+ rounds', (a) => [a.engine ? 1 : 0, 1]],
 ];
 
-// Every badge, earned (with the date) or not (with how close you are).
+// Every badge, earned (with the date) or not (with how close you are). Remembered until the
+// sessions or goals change (screens ask several times per render).
+let memo = { key: null, out: null };
 export function badges(sessions, profile = {}) {
+  const key = `${sessions.length}|${sessions.at(-1)?.date}|${sessions.at(-1)?.id}|${profile.weeklyGoal}|${profile.fight?.rounds}|${profile.fight?.roundSec}`;
+  if (memo.key === key && memo.src === sessions) return memo.out;
+  const out = computeBadges(sessions, profile);
+  memo = { key, src: sessions, out };
+  return out;
+}
+
+function computeBadges(sessions, profile) {
   const fight = profile.fight || { rounds: 6, roundSec: 180 };
   const goal = profile.weeklyGoal || 3;
   const a = { sessions: 0, punches: 0, rounds: 0, bestStreak: 0, fullFight: false, bestTest: 0, bestGuard: 0, engine: false };
   const earned = {};
   const sorted = [...sessions].sort((x, y) => new Date(x.date) - new Date(y.date));
-  const seen = [];
+  // The weekly streak, kept as we go (one pass, not a recount per session).
+  const weekDays = new Map();
+  let streak = 0, lastHitWeek = null;
   for (const s of sorted) {
-    seen.push(s);
+    const w = +monday(s.date);
+    if (!weekDays.has(w)) weekDays.set(w, new Set());
+    const days = weekDays.get(w);
+    const before = days.size >= goal;
+    days.add(new Date(s.date).toDateString());
+    if (!before && days.size >= goal) {
+      streak = lastHitWeek != null && +monday(lastHitWeek + 10 * DAY) === w ? streak + 1 : 1;
+      lastHitWeek = w;
+      a.bestStreak = Math.max(a.bestStreak, streak);
+    }
     if (s.type in BOXING_TYPES || s.workSec) a.sessions++;
     a.punches += s.source === 'manual' ? 0 : s.punches?.total || 0;
     a.rounds += rounds(s);
-    a.bestStreak = Math.max(a.bestStreak, weekStreak(seen, goal, new Date(s.date)));
     if (!s.test && rounds(s) >= fight.rounds && (s.plan?.roundSec || 0) >= fight.roundSec) a.fullFight = true;
     if (s.test) a.bestTest = Math.max(a.bestTest, s.test.typePct || 0);
     const pr = s.form?.perRound?.length || 0;

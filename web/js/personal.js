@@ -10,8 +10,9 @@ const K = 5;
 // Version of the measurements. 2: an uppercut's rise is measured from the bottom of its dip
 // (before, uppercuts that dipped first measured almost no rise and looked like hooks).
 const FEAT_V = 2;
-// Uppercuts taught before version 2 carry the old, wrong rise: they'd teach "hook = uppercut".
-const current = (x) => x && x.kind && !(x.kind === 'uppercut' && !(x.v >= 2));
+// Before version 2 a bent arm's rise was measured differently (uppercuts and hooks that dip):
+// those examples would teach the wrong thing. Straight-arm ones are unchanged and kept.
+const current = (x) => x && x.kind && (x.v >= 2 || x.angle >= 140);
 
 const vec = (x) => [x.ext, x.angle / 180, x.rise, x.fwd, x.lat, x.e2, x.a2 / 180, x.dx, x.dy, Math.min(3, x.fore) / 3, x.side];
 

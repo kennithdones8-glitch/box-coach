@@ -168,7 +168,7 @@ test('lock-screen bells: the round bells still to come, at the right times', asy
 
 test('lock-screen bells go to the phone through the native bridge, and come back', async () => {
   const calls = [];
-  globalThis.Capacitor = { isNativePlatform: () => true, nativePromise: async (plugin, method, opts) => { calls.push([plugin, method, opts]); return { display: 'granted' }; } };
+  globalThis.Capacitor = { isNativePlatform: () => true, getPlatform: () => 'ios', nativePromise: async (plugin, method, opts) => { calls.push([plugin, method, opts]); return { display: 'granted' }; } };
   try {
     const { bellsReady, handBellsToPhone, takeBellsBack } = await import('../web/js/bells.js');
     const { RoundTimer } = await import('../web/js/timer.js');

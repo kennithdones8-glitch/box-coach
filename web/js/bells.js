@@ -9,18 +9,24 @@ const IDS = Array.from({ length: 40 }, (_, i) => ({ id: 7100 + i }));
 // (what @capacitor/core's plugin wrapper does under the hood).
 const plugin = () => {
   const cap = globalThis.Capacitor;
-  if (!cap?.isNativePlatform?.() || !cap.nativePromise) return null;
+  // iPhone only: a locked iPhone pauses the app, so the phone rings the bells. Android keeps the
+  // app running with the screen off and rings them itself; handing them over too would ring twice.
+  if (!cap?.isNativePlatform?.() || !cap.nativePromise || cap.getPlatform?.() !== 'ios') return null;
   const call = (method) => (options = {}) => cap.nativePromise('LocalNotifications', method, options);
   return { checkPermissions: call('checkPermissions'), requestPermissions: call('requestPermissions'), schedule: call('schedule'), cancel: call('cancel') };
 };
 
-// Ask once, at the start of a session.
+// Ask once (the first session); after that, only check, so a "no" isn't asked again every workout.
+const ASKED = 'boxcoach.bellsAsked';
 export async function bellsReady() {
   const ln = plugin();
   if (!ln) return false;
   try {
     const p = await ln.checkPermissions();
-    return (p.display === 'granted' ? p : await ln.requestPermissions()).display === 'granted';
+    if (p.display === 'granted') return true;
+    if (globalThis.localStorage?.getItem(ASKED)) return false;
+    globalThis.localStorage?.setItem(ASKED, '1');
+    return (await ln.requestPermissions()).display === 'granted';
   } catch { return false; }
 }
 

@@ -630,6 +630,7 @@ export class FormAnalyzer {
 
   update(world, image, t) {
     this.now = t;
+    this.seen = null; // set again below only when the body is in view this frame
     if (!world || !image) {
       if (this.active && this.held('nobody', true, t) > 3000) this.cue('visibility', 'Step back, I need to see you', t);
       return null;
@@ -1025,7 +1026,7 @@ export class FormAnalyzer {
       }
       if (p.kind !== 'none') { kind = p.kind; margin = p.share; }
     }
-    this.recent.push({ ...feats, disp: h.peakDisp });
+    this.recent.push({ ...feats, disp: h.peakDisp, role });
     if (this.recent.length > 24) this.recent.shift();
     this.learnedAxis = refineAxis(this.recent, this.cal); // also used for which foot leads
     const vis = h.vis;

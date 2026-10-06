@@ -52,7 +52,7 @@ export class RoundTimer {
     // Back from a locked screen: the phases that passed meanwhile are entered quietly (no bells or
     // calls piling up), then onWake says where you are now.
     const startPhase = this.phase, startRound = this.round;
-    this.catchingUp = dt > 1500;
+    this.catchingUp = dt > 5000; // a locked screen, not a brief stall (model loading, GC)
     while (this.phase !== 'done') {
       const step = Math.max(0, Math.min(left, this.remainingMs));
       this.remainingMs -= step;
@@ -101,18 +101,17 @@ export function upcomingBells(timer, now = Date.now()) {
   if (!timer || timer.paused || timer.phase === 'done' || timer.phase === 'idle') return [];
   const out = [];
   let at = now + timer.remainingMs, phase = timer.phase, round = timer.round;
-  const mmss = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
   while (out.length < 40) {
     if (phase === 'prep' || phase === 'rest') {
       round++;
-      out.push({ at, title: `🔔 Round ${round}`, body: `Fight! ${mmss(timer.roundSec)} on the clock.` });
+      out.push({ at, title: `🔔 Round ${round}`, body: `Fight! ${fmt(timer.roundSec)} on the clock.` });
       phase = 'work';
       at += timer.roundSec * 1000;
     } else if (round >= timer.rounds) {
       out.push({ at, title: '🔔 Time!', body: 'Session done. Great work.' });
       break;
     } else if (timer.restSec > 0) {
-      out.push({ at, title: `🔔 Round ${round} done`, body: `Rest ${mmss(timer.restSec)}.` });
+      out.push({ at, title: `🔔 Round ${round} done`, body: `Rest ${fmt(timer.restSec)}.` });
       phase = 'rest';
       at += timer.restSec * 1000;
     } else {
