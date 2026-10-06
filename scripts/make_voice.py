@@ -5,9 +5,11 @@ from piper import PiperVoice, SynthesisConfig
 
 model, lines_path, out_dir = sys.argv[1:4]
 voice = PiperVoice.load(model)
-for line in json.load(open(lines_path)):
+with open(lines_path) as f:
+    lines = json.load(f)
+for line in lines:
     # Combo calls a touch quicker; everything else at a natural pace.
     cfg = SynthesisConfig(length_scale=0.85 if line["fast"] else 1.0)
     with wave.open(f"{out_dir}/{line['id']}.wav", "wb") as wf:
         voice.synthesize_wav(line["text"], wf, syn_config=cfg)
-print(f"recorded {len(json.load(open(lines_path)))} lines")
+print(f"recorded {len(lines)} lines")

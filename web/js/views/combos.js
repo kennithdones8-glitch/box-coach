@@ -75,7 +75,8 @@ export function renderCombos(el, app) {
   $('#cbClear', el).addEventListener('click', () => { building = []; bodyNext = false; show(); });
   $('#cbHear', el).addEventListener('click', () => {
     if (!building.length) return;
-    audio.setVoice(true);
+    audio.unlockAudio();
+    audio.setVoice(true, app.state.settings.voiceName); // the coach's voice from Settings
     audio.say(comboSpeech(building), { interrupt: true, rate: 1.2 });
   });
   $('#cbText', el).addEventListener('input', (e) => {

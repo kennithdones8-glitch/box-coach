@@ -1,11 +1,13 @@
 // Offline support: cache the app shell, and cache the pose model/runtime after first use.
-const CACHE = 'boxcoach-2026.10.05-1'; // must match APP_VERSION in js/app.js (a test checks)
+const CACHE = 'boxcoach-2026.10.06-1'; // must match APP_VERSION in js/app.js (a test checks)
 const SHELL = [
   './', 'index.html', 'about.html', 'privacy.html', 'support.html', 'css/styles.css', 'manifest.webmanifest', 'icon.svg', 'icon-192.png', 'icon-512.png', 'img/1-today.jpg', 'img/3-punch-test.jpg', 'img/5-progress.jpg',
   'js/app.js', 'js/audio.js', 'js/chart.js', 'js/coach.js', 'js/form.js', 'js/motion.js', 'js/plan.js', 'js/pose.js', 'js/store.js', 'js/timer.js',
   'js/ui.js', 'js/library.js', 'js/skills.js', 'js/analysis.js', 'js/recovery.js', 'js/hypotheses.js', 'js/engine.js', 'js/report.js',
   'js/views/review.js', 'js/views/boxer.js', 'js/views/coach.js', 'js/views/video.js', 'js/views/combos.js', 'js/combos.js', 'js/calibrate.js', 'js/views/study.js', 'js/views/handoff.js', 'js/aicheck.js', 'js/safety.js', 'js/coachme.js', 'js/views/coachme.js', 'js/personal.js', 'js/punchtest.js', 'js/camcheck.js', 'js/bugreport.js', 'js/recap.js', 'js/badges.js', 'js/defense.js', 'js/friends.js', 'js/bells.js', 'js/coachvoice.js', 'js/voice.js', 'js/workouts.js', 'js/sharecard.js', 'js/voicepack.js', 'voice/manifest.json',
 ];
+// Recorded coach clips are named by their content, so they never change: kept across releases.
+const VOICE_CACHE = 'boxcoach-voice';
 const RUNTIME_HOSTS = ['cdn.jsdelivr.net', 'storage.googleapis.com'];
 
 self.addEventListener('install', (e) => {
@@ -16,7 +18,7 @@ self.addEventListener('install', (e) => {
 self.addEventListener('activate', (e) => {
   e.waitUntil(
     caches.keys()
-      .then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k))))
+      .then((keys) => Promise.all(keys.filter((k) => k !== CACHE && k !== VOICE_CACHE).map((k) => caches.delete(k))))
       .then(() => self.clients.claim()),
   );
 });
@@ -25,7 +27,12 @@ self.addEventListener('fetch', (e) => {
   const req = e.request;
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
-  if (url.origin === location.origin) {
+  if (url.origin === location.origin && /\/voice\/[^/]+\.mp3$/.test(url.pathname)) {
+    e.respondWith(caches.open(VOICE_CACHE).then((c) => c.match(req).then((hit) => hit || fetch(req).then((res) => {
+      if (res.ok) c.put(req, res.clone());
+      return res;
+    }))));
+  } else if (url.origin === location.origin) {
     // Open from the saved copy straight away: a gym with weak signal no longer waits on 30-odd
     // requests. Each release renames CACHE, which installs a complete fresh copy of the app (all
     // files from the same version), so updates land on the next open.
@@ -39,7 +46,8 @@ self.addEventListener('fetch', (e) => {
           }
           return res;
         })
-        .catch(() => caches.match('index.html'))),
+        // Offline: pages fall back to the app; anything else (an image, a clip) just fails.
+        .catch(() => (req.mode === 'navigate' ? caches.match('index.html') : Response.error()))),
     );
   } else if (RUNTIME_HOSTS.includes(url.hostname)) {
     e.respondWith(

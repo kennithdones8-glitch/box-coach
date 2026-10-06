@@ -8,13 +8,14 @@ import { testPlan } from '../web/js/punchtest.js';
 import { SETUP_TEXT } from '../web/js/camcheck.js';
 import { DEF_MOVES } from '../web/js/defense.js';
 import { pieces, norm } from '../web/js/voicepack.js';
+import { ROOTS, ADJUST_SAY } from '../web/js/coachme.js';
+import { fileURLToPath } from 'url';
 
 const NUM = ['one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven', 'twelve'];
-// Finishers and round-to-round changes from Coach me (coachme.js).
-const FINISHERS = ['hands home', 'then pivot out', 'then step out', 'then slip', 'breathe, hands home', 'reset your feet'];
+// Finishers and round-to-round changes, straight from Coach me (coachme.js).
+const FINISHERS = [...new Set(Object.values(ROOTS).map((r) => r.finisher).filter(Boolean))];
 const EXTRA = [
-  'Guard dropping. Next round: guard only, slower.', 'Clean. Longer combos next round.', 'Next round: two-punch combos.',
-  ...FINISHERS.map((f) => `Next round: two-punch combos, ${f}.`),
+  ADJUST_SAY.switch, ADJUST_SAY.progress, ADJUST_SAY.simplify(null), ...FINISHERS.map((f) => ADJUST_SAY.simplify(f)),
   'Jab quality cap reached. Switch focus.', 'Rest.', 'Stop.', 'Done.', 'Stop. Reset.',
   ...NUM.map((n) => `Round ${n}.`), ...NUM.map((_, i) => `Round ${i + 1}.`), 'Round one:', 'Opponent:', 'Focus:',
 ];
@@ -34,7 +35,7 @@ export function voiceLines() {
   for (const w of Object.values(PUNCH_WORDS)) { add(w.toLowerCase(), true); add(`${w.toLowerCase()} body`, true); }
   for (const d of DEFENSE) add(d, true);
   for (const m of Object.values(DEF_MOVES)) add(`${m}!`, true);
-  const comboTexts = [...Object.values(COMBOS).flat(), ...Object.values(FOCUS_ADDONS).flat(), ...Object.values(CONSTRAINTS).flatMap((c) => c.combos || []), ...STARTERS.map((s) => (typeof s === 'string' ? s : s.text || s.combo || '')), ...FINISHERS];
+  const comboTexts = [...Object.values(COMBOS).flat(), ...Object.values(FOCUS_ADDONS).flat(), ...Object.values(CONSTRAINTS).flatMap((c) => c.combos || []), ...STARTERS, ...FINISHERS];
   for (const t of comboTexts) {
     const toks = parseCombo(t);
     for (const p of pieces(toks ? comboSpeech(toks) : comboToSpeech(t))) add(p.replace(/,$/, ''), true);
@@ -42,7 +43,7 @@ export function voiceLines() {
   return [...whole.values()];
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (fileURLToPath(import.meta.url) === process.argv[1]) {
   const lines = voiceLines();
   console.log(JSON.stringify(lines, null, 1));
   console.error(`${lines.length} lines`);

@@ -60,6 +60,13 @@ const meets = (key, value, target) => (value == null ? null : METRICS[key].bette
 
 const L = (name, purpose, detail, target) => ({ name, purpose, detail, target });
 
+// What the coach says between rounds when it changes the plan (also recorded: scripts/voice-lines.mjs).
+export const ADJUST_SAY = {
+  switch: 'Guard dropping. Next round: guard only, slower.',
+  simplify: (finisher) => `Next round: two-punch combos${finisher ? `, ${finisher}` : ''}.`,
+  progress: 'Clean. Longer combos next round.',
+};
+
 export const ROOTS = {
   handsHome: {
     name: "Your hands don't come home", plain: 'hands staying out after you punch',
@@ -399,17 +406,17 @@ export function adjustNextRound({ form, first, calls = [], coach = null, comboLe
   const lvl = typeof comboLevel === 'number' ? comboLevel : 2;
   // Fatigue is wrecking the technique: stop adding difficulty, rebuild the guard.
   if (measured && first?.guard != null && form.guard != null && first.guard - form.guard >= 15) {
-    return { action: 'switch', switchTo: 'guardRecovery', comboLevel: Math.max(1, lvl - 1), maxLen: 3, say: 'Guard dropping. Next round: guard only, slower.' };
+    return { action: 'switch', switchTo: 'guardRecovery', comboLevel: Math.max(1, lvl - 1), maxLen: 3, say: ADJUST_SAY.switch };
   }
   const key = coach?.metric;
   const target = coach ? drillFor(coach.root, coach.level).success.target : null;
   const value = measured && key && key !== 'guardFade' && key !== 'opener' ? form[key] : null;
   const ok = value == null ? null : meets(key, value, target);
   if ((rate != null && rate < 0.4) || ok === false) {
-    return { action: 'simplify', comboLevel: Math.max(1, lvl - 1), maxLen: 2, say: `Next round: two-punch combos${coach?.finisher ? `, ${coach.finisher}` : ''}.`, why: { exact, called, value } };
+    return { action: 'simplify', comboLevel: Math.max(1, lvl - 1), maxLen: 2, say: ADJUST_SAY.simplify(coach?.finisher), why: { exact, called, value } };
   }
   if ((rate == null || rate >= 0.75) && (ok === true || (ok == null && rate != null))) {
-    return { action: 'progress', comboLevel: Math.min(3, lvl + 1), maxLen: null, say: 'Clean. Longer combos next round.' };
+    return { action: 'progress', comboLevel: Math.min(3, lvl + 1), maxLen: null, say: ADJUST_SAY.progress };
   }
   return { action: 'keep', comboLevel: lvl, maxLen: null, say: null };
 }

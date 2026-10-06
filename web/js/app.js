@@ -51,7 +51,7 @@ function persist() {
   if (!store.save(state)) toast('Could not save — storage is full or blocked.');
 }
 
-export const APP_VERSION = '2026.10.05-1';
+export const APP_VERSION = '2026.10.06-1';
 
 const app = {
   version: APP_VERSION,
@@ -538,7 +538,9 @@ async function startSession(plan) {
   if (live) return;
   audio.unlockAudio();
   audio.setVoice(state.settings.voice, state.settings.voiceName);
-  audio.preloadVoice(); // the recorded coach's clips, ready before the first call
+  // The recorded coach's index before the first line is said (on a slow connection, not for long).
+  await Promise.race([audio.loadVoicePack(), new Promise((r) => setTimeout(r, 1500))]);
+  audio.preloadVoice(); // and its clips, in the background
   let tracking = plan.tracking;
   if (tracking === 'motion') {
     try {
@@ -977,7 +979,7 @@ function teardownLive() {
   live.stopMotion?.();
   live.tracker?.stop();
   live.wakeLock?.release?.();
-  window.speechSynthesis?.cancel();
+  audio.stopSpeech();
   $('#live').hidden = true;
   document.body.classList.remove('in-live');
 }
@@ -1044,7 +1046,7 @@ $('#livePause').addEventListener('click', () => {
   const p = live.timer.togglePause();
   $('#livePause').textContent = p ? 'Resume' : 'Pause';
   if (live.tracker) live.tracker.maxFps = p ? 3 : live.timer.phase === 'work' ? null : 6;
-  if (p) window.speechSynthesis?.cancel();
+  if (p) audio.stopSpeech();
 });
 $('#liveSkip').addEventListener('click', () => live?.timer?.skip());
 $('#liveEnd').addEventListener('click', () => {

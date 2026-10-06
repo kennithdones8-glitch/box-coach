@@ -5,6 +5,8 @@ let ctx = null;
 
 export function unlockAudio() {
   loadVoicePack();
+  // iPhone: Web Audio follows the ring/silent switch; a workout coach must be heard anyway.
+  try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch { /* older Safari */ }
   if (!ctx) {
     const AC = window.AudioContext || window.webkitAudioContext;
     if (AC) ctx = new AC();
@@ -101,7 +103,8 @@ function pickVoice() {
 }
 globalThis.speechSynthesis?.addEventListener?.('voiceschanged', pickVoice);
 
-// The recorded coach (voicepack.js): the manifest, and clips decoded on first use.
+// The recorded coach (voicepack.js): the manifest (loaded before a session starts), and clips
+// decoded on first use. A clip that fails is forgotten, so it's tried again next time.
 let manifest = null, manifestLoad = null;
 const clips = new Map();
 export function loadVoicePack() {
@@ -109,60 +112,76 @@ export function loadVoicePack() {
   return manifestLoad;
 }
 const clip = (file) => {
-  if (!clips.has(file)) clips.set(file, fetch(file).then((r) => r.arrayBuffer()).then((b) => ctx.decodeAudioData(b)));
+  if (!clips.has(file)) {
+    const p = fetch(file).then((r) => { if (!r.ok) throw new Error(`${r.status}`); return r.arrayBuffer(); }).then((b) => ctx.decodeAudioData(b));
+    p.catch(() => clips.delete(file));
+    clips.set(file, p);
+  }
   return clips.get(file);
 };
-// Decode every clip ahead of a session, a few at a time, so calls play on the beat.
+// Before a session: download every clip (so it works offline), but decode only the short combo
+// words, which must play on the beat. Decoding all of them would hold ~75 MB of audio in memory.
 export async function preloadVoice() {
   await loadVoicePack();
-  if (!manifest || !ctx || wanted) return;
+  if (!manifest || !ctx || wanted || !voiceOn) return;
+  const words = new Set(Object.entries(manifest).filter(([k]) => k.split(' ').length <= 2).map(([, f]) => f));
   const files = [...new Set(Object.values(manifest))];
-  for (let i = 0; i < files.length; i += 8) await Promise.all(files.slice(i, i + 8).map((f) => clip(f).catch(() => {})));
+  for (let i = 0; i < files.length; i += 8) {
+    await Promise.all(files.slice(i, i + 8).map((f) => (words.has(f) ? clip(f) : fetch(f).then((r) => r.blob())).catch(() => {})));
+  }
 }
-let playing = [], busyUntil = 0, turn = 0;
+
+let playing = [], busyUntil = 0, loading = false, turn = 0;
 function stopClips() {
   turn++;
+  loading = false;
   for (const src of playing) { try { src.stop(); } catch { /* already done */ } }
   playing = [];
   busyUntil = 0;
 }
-export const speaking = () => (ctx && ctx.currentTime < busyUntil) || !!globalThis.speechSynthesis?.speaking;
+const phoneBusy = () => !!(globalThis.speechSynthesis?.speaking || globalThis.speechSynthesis?.pending);
+export const speaking = () => loading || (ctx && ctx.state === 'running' && ctx.currentTime < busyUntil) || phoneBusy();
+
+// Stop the coach mid-sentence (pause, end of session).
+export function stopSpeech() {
+  stopClips();
+  globalThis.speechSynthesis?.cancel();
+}
 
 // rate 1 = calm, talking pace; combo calls go a little quicker (recorded calls already are).
 export function say(text, { interrupt = false, rate = 1 } = {}) {
   if (!voiceOn || !text) return;
-  // The recordings' index is still loading (first line of a session): wait for it, briefly.
-  if (!wanted && ctx && !manifest && manifestLoad && !say.waiting) {
-    say.waiting = true;
-    manifestLoad.finally(() => { say.waiting = false; say(text, { interrupt, rate }); });
-    return;
-  }
-  const list = !wanted && ctx && manifest ? playlist(text, manifest) : null;
-  if (list) {
-    if (interrupt) { stopClips(); globalThis.speechSynthesis?.cancel(); } else if (speaking()) return; // don't queue up stale cues
-    const mine = ++turn;
-    Promise.all(list.map((x) => clip(x.file))).then((bufs) => {
-      if (mine !== turn) return; // something newer interrupted
-      let t = ctx.currentTime + 0.02;
-      bufs.forEach((b, i) => {
-        const src = ctx.createBufferSource();
-        src.buffer = b;
-        src.connect(ctx.destination);
-        src.start(t);
-        playing.push(src);
-        t += b.duration + list[i].gap;
-      });
-      busyUntil = t;
-    }).catch(() => speakWithPhone(text, { interrupt, rate }));
-    return;
-  }
-  speakWithPhone(text, { interrupt, rate });
+  if (ctx && ctx.state !== 'running') ctx.resume?.().catch(() => {}); // back from a lock screen or a call
+  const list = !wanted && ctx?.state === 'running' && manifest ? playlist(text, manifest) : null;
+  if (!list) return speakWithPhone(text, { interrupt, rate });
+  if (interrupt) stopSpeech(); else if (speaking()) return; // don't queue up stale cues
+  const mine = ++turn;
+  loading = true;
+  Promise.all(list.map((x) => clip(x.file))).then((bufs) => {
+    if (mine !== turn) return; // something newer took over
+    loading = false;
+    let t = ctx.currentTime + 0.02;
+    bufs.forEach((b, i) => {
+      const src = ctx.createBufferSource();
+      src.buffer = b;
+      src.connect(ctx.destination);
+      src.onended = () => { playing = playing.filter((x) => x !== src); };
+      src.start(t);
+      playing.push(src);
+      t += b.duration + list[i].gap;
+    });
+    busyUntil = t;
+  }).catch(() => {
+    if (mine !== turn) return; // outdated: don't talk over what came after
+    loading = false;
+    speakWithPhone(text, { interrupt, rate });
+  });
 }
 
 function speakWithPhone(text, { interrupt, rate }) {
   if (!('speechSynthesis' in window)) return;
   const s = window.speechSynthesis;
-  if (interrupt) { s.cancel(); stopClips(); } else if (speaking()) return;
+  if (interrupt) stopSpeech(); else if (speaking()) return;
   if (!chosen || (wanted && wanted !== 'device' && chosen.name !== wanted)) pickVoice();
   const u = new SpeechSynthesisUtterance(text);
   if (chosen) { u.voice = chosen; u.lang = chosen.lang; }
