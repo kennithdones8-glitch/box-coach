@@ -53,7 +53,7 @@ function persist() {
   if (!store.save(state)) toast('Could not save — storage is full or blocked.');
 }
 
-export const APP_VERSION = '2026.10.09-3';
+export const APP_VERSION = '2026.10.09-4';
 
 const app = {
   version: APP_VERSION,
@@ -1154,6 +1154,7 @@ function sessionDetailHTML(s, fb) {
     ${combosHTML(s)}
     ${roundsTable(s)}
     ${s.form?.speed != null ? `<p class="small muted">Hand speed: ${speedText(s.form.speed, state.profile.unit)} typical · ${speedText(s.form.topSpeed, state.profile.unit)} on your fastest${s.form.speedDrop != null ? ` · ${s.form.speedDrop > 0 ? `${s.form.speedDrop}% slower` : 'no slower'} by the last round` : ''} (camera estimate: compare it with yourself)</p>` : ''}
+    ${s.form?.feints ? `<p class="small muted">Feints: ${s.form.feints}${s.form.feintsPerMin ? ` (${s.form.feintsPerMin} a minute)` : ''} · ${s.form.feintSetups || 0} led straight into a punch (camera estimate: hand feints only)</p>` : ''}
     ${s.form?.headPerMin != null ? `<p class="small muted">Head movement: ${s.form.headPerMin} slips, rolls or pulls per minute</p>` : ''}
     ${s.form?.handReturnMs != null ? `<p class="small muted">Hand return: lead ${s.form.leadReturnMs ?? '–'} ms · rear ${s.form.rearReturnMs ?? '–'} ms · rear hand dropped on ${s.form.rearDropPct ?? 0}% of lead punches</p>` : ''}
     ${s.intensity ? `<p class="small muted">Average punch intensity: ${s.intensity} m/s²</p>` : ''}

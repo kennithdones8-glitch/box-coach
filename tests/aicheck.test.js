@@ -85,3 +85,17 @@ test('API key is stored apart from app data and can be removed', () => {
   setAi('', null, st);
   assert.equal(aiKey(st), '');
 });
+
+test('a long video saves the busiest 20 photos for a chat, in time order', async () => {
+  const { chatSheets } = await import('../web/js/aicheck.js');
+  const sheets = Array.from({ length: 180 }, (_, i) => ({ t0: i * 2000, t1: i * 2000 + 1900 }));
+  // Punches cluster in a few exchanges; a feint too.
+  const events = [];
+  for (const s of [10, 11, 50, 51, 52, 90, 120, 170]) for (let k = 0; k < 5; k++) events.push({ kind: 'punch', t: s * 2000 + k * 300 });
+  events.push({ kind: 'feint', t: 140 * 2000 + 100 }, { kind: 'guardDrop', t: 3 * 2000 });
+  const pick = chatSheets(sheets, events);
+  assert.equal(pick.length, 20);
+  assert.deepEqual([...pick].sort((a, b) => a - b), pick, 'in time order');
+  for (const s of [10, 11, 50, 51, 52, 90, 120, 140, 170]) assert.ok(pick.includes(s), `sheet ${s} with action kept`);
+  assert.deepEqual(chatSheets(sheets.slice(0, 7), events), [0, 1, 2, 3, 4, 5, 6], 'short videos keep every photo');
+});

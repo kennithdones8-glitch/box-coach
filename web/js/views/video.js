@@ -11,7 +11,7 @@ import { saveReference } from './study.js';
 import { takePreset } from './handoff.js';
 import { drawBody } from '../pose.js';
 import { buildReport } from '../report.js';
-import { FrameSheets, aiKey, checkWithClaude, applyAi, AI_MODELS } from '../aicheck.js';
+import { FrameSheets, aiKey, checkWithClaude, applyAi, AI_MODELS, chatSheets, CHAT_PHOTOS } from '../aicheck.js';
 
 let job = null; // { analyzer, events, rounds, meta } after analysis
 let busy = false;
@@ -231,6 +231,13 @@ async function analyse(file, video, opts, el, app) {
   let cancelled = false;
   $('#vidCancel', el).addEventListener('click', () => { cancelled = true; video.pause(); });
   const url = video.src;
+  // Keep the screen on: a 6-minute video can take a few minutes, and the phone locking itself
+  // would stop the analysis.
+  let wake = null;
+  const keepAwake = async () => { try { if (!wake || wake.released) wake = await navigator.wakeLock?.request('screen'); } catch { /* not supported */ } };
+  const onShow = () => { if (document.visibilityState === 'visible') keepAwake(); };
+  keepAwake();
+  document.addEventListener('visibilitychange', onShow);
   try {
     if (video.readyState < 2) {
       await new Promise((res, rej) => {
@@ -399,25 +406,41 @@ async function analyse(file, video, opts, el, app) {
       // A phone that can't analyse a frame in well under the time between frames steps from the start.
       const typical = scanCosts.length > 1 ? scanCosts.slice(1).sort((a, b) => a - b)[Math.floor((scanCosts.length - 1) / 2)] : 0;
       mode = typical * 1.5 > gap + 5 ? 'step' : 'flow';
-      let rate = 1, wanted = 0, missed = 0, prevT = null, slow = 0, settled = 0;
-      let watchdog = null, asking = false;
+      let rate = 1, wanted = 0, missed = 0, prevT = null, slow = 0, settled = 0, stopAway = () => {};
+      let watchdog = null, asking = false, away = false, waiting = false;
       await new Promise((resolve, reject) => {
         let gotFrame = false;
         let lastProgress = performance.now(), nudged = false;
         // If playback stops delivering frames, nudge it once, then give a clear message
         // instead of sitting on a frozen screen.
         watchdog = setInterval(() => {
-          if (cancelled || asking) { lastProgress = performance.now(); return; }
+          if (cancelled || asking || away) { lastProgress = performance.now(); return; }
           const idle = performance.now() - lastProgress;
           if (idle > 6000 && !nudged) { nudged = true; video.play().catch(() => {}); }
           if (idle > 20000) reject(new Error('The analysis stopped responding on this video. Try Detail: Fast, or a shorter clip (iPhone: Settings → Camera → Record Video → 1080p HD).'));
         }, 2000);
         const resume = () => {
-          video.requestVideoFrameCallback(onFrame);
-          if (video.paused) video.play().catch(() => {});
+          if (!waiting) { waiting = true; video.requestVideoFrameCallback(onFrame); }
+          if (video.paused && !away) video.play().catch(() => {});
         };
+        // Switched to another app or the screen went off: wait, and carry on when back.
+        const onAway = () => {
+          if (document.hidden) {
+            away = true;
+            video.pause();
+            status.textContent = `Paused at ${fmtT(lastT)} while BoxCoach was in the background. It carries on when you come back.`;
+          } else if (away) {
+            away = false;
+            lastProgress = performance.now();
+            if (!asking) resume();
+          }
+        };
+        document.addEventListener('visibilitychange', onAway);
+        stopAway = () => document.removeEventListener('visibilitychange', onAway);
         const onFrame = (now, meta) => {
+          waiting = false;
           if (cancelled) return reject(new Error('cancelled'));
+          if (away) return; // a frame shown just as the app went away: picked up again on return
           gotFrame = true;
           lastProgress = performance.now();
           nudged = false;
@@ -459,13 +482,14 @@ async function analyse(file, video, opts, el, app) {
           }
           resume();
         };
-        video.addEventListener('ended', () => { if (!asking) resolve(); }, { once: true });
+        video.addEventListener('ended', () => { if (!asking && !away) resolve(); }, { once: true });
+        waiting = true;
         video.requestVideoFrameCallback(onFrame);
         video.currentTime = 0;
         video.play().catch(() => reject(new Error('The video would not play. Tap Analyse again.')));
         setTimeout(() => { if (!gotFrame && !cancelled) reject(new Error('The video did not start playing. Tap Analyse again.')); }, 15000);
         $('#vidCancel', el).addEventListener('click', () => reject(new Error('cancelled')));
-      }).finally(() => { clearInterval(watchdog); video.playbackRate = 1; });
+      }).finally(() => { clearInterval(watchdog); stopAway(); video.playbackRate = 1; });
     } else {
       // Fallback: step through the video frame by frame.
       const step = 1000 / opts.fps;
@@ -549,6 +573,8 @@ async function analyse(file, video, opts, el, app) {
     app.rerender();
   } finally {
     busy = false;
+    document.removeEventListener('visibilitychange', onShow);
+    wake?.release?.().catch?.(() => {});
   }
 }
 
@@ -630,6 +656,7 @@ function renderReview(el, app) {
         <li>${punches.length} punches detected, average confidence ${avgConf ?? '–'}%</li>
         ${j.comboCheck ? comboCheckHTML(j.comboCheck) : ''}
         ${j.ai ? `<li id="aiStatus">${aiStatusHTML(j.ai)}</li>` : ''}
+        <li>${others.filter((e) => e.kind === 'feint').length} feints${others.some((e) => e.kind === 'feint') ? ` · ${punches.filter((e) => e.afterFeint).length} led straight into a punch` : ''}</li>
         <li>${others.filter((e) => e.kind === 'guardDrop').length} guard drops · ${others.filter((e) => e.kind === 'crossedFeet').length} crossed-feet moments</li>
       </ul>
       <p class="muted small">Computer vision isn't perfect. Tap a time to jump there, fix the punch type, or untick anything that's wrong. Low-confidence detections start unticked.</p>
@@ -638,7 +665,7 @@ function renderReview(el, app) {
     </section>
     ${j.sheets?.length ? `<section class="card">
       <h3 style="margin-top:0">Send to Claude (free)</h3>
-      <p class="muted small">One tap copies this video's report and saves ${j.sheets.length} photo${j.sheets.length === 1 ? '' : 's'} of it (your upper body, frame by frame, with times): choose <b>Save Images</b>. Then in your Claude chat, paste the report and attach the photos. Claude checks every punch, and the app learns from it.${j.sheets.at(-1).t1 < j.durMs - 3000 ? ` <b>The photos (and the Claude check) cover the first ${fmtT(j.sheets.at(-1).t1)} only</b>; the rest of the video is in the numbers above but not in the photos.` : ''}</p>
+      <p class="muted small">One tap copies this video's report and saves ${Math.min(j.sheets.length, CHAT_PHOTOS)} photo${j.sheets.length === 1 ? '' : 's'} of it (your upper body, frame by frame, with times)${j.sheets.length > CHAT_PHOTOS ? `: ${CHAT_PHOTOS} of the ${j.sheets.length}, favouring the moments with punches and feints` : ''}. Choose <b>Save Images</b>. Then in your Claude chat, paste the report and attach the photos. Claude checks every punch, and the app learns from it.${j.sheets.at(-1).t1 < j.durMs - 3000 ? ` <b>The photos (and the Claude check) cover the first ${fmtT(j.sheets.at(-1).t1)} only</b>; the rest of the video is in the numbers above but not in the photos.` : ''}</p>
       <button class="btn primary block" id="saveFrames" type="button">📤 Copy report + save photos</button>
     </section>` : ''}
     ${filmingTips(j) ? `<section class="card"><div class="msg">${filmingTips(j)}</div></section>` : ''}
@@ -651,7 +678,7 @@ function renderReview(el, app) {
           <button class="linkbtn" data-seek="${e.t}">${fmtT(e.t)}</button>
           ${e.kind === 'punch'
             ? `<select data-fix="${e.i}">${Object.entries(PUNCH_NAMES).map(([k, n]) => opt(k, e.fix, n)).join('')}</select>`
-            : `<span>${e.kind === 'guardDrop' ? 'Guard drop' : 'Crossed feet'}</span>`}
+            : `<span>${e.kind === 'guardDrop' ? 'Guard drop' : e.kind === 'feint' ? `Feint (${e.role === 'lead' ? 'lead' : 'rear'} hand)` : 'Crossed feet'}</span>`}
           <span class="badge ${e.conf >= 80 ? 'good' : e.conf >= 60 ? 'warn' : 'bad'}">${e.conf}%</span>
           ${e.ai ? `<span class="badge ai" title="Checked by Claude">${e.ai === 'added' ? 'Claude: missed' : e.ai === 'none' ? 'Claude: not a punch' : e.ai === 'same' ? 'Claude ✓' : 'Claude fixed'}</span>` : ''}
         </li>`).join('')}</ul>
@@ -662,8 +689,9 @@ function renderReview(el, app) {
 
   // iPhone only opens the share sheet straight from a tap, so the photos are made ready beforehand.
   if (j.sheets?.length && !j.files) {
-    j.files = Promise.all(j.sheets.map((s) => s.blob)).then((blobs) => blobs
-      .map((b, i) => b && new File([b], `boxcoach-${j.date.slice(0, 10)}-frames-${String(i + 1).padStart(2, '0')}.jpg`, { type: 'image/jpeg' }))
+    const chosen = chatSheets(j.sheets, j.events);
+    j.files = Promise.all(chosen.map((i) => j.sheets[i].blob)).then((blobs) => blobs
+      .map((b, k) => b && new File([b], `boxcoach-${j.date.slice(0, 10)}-frames-${String(chosen[k] + 1).padStart(3, '0')}.jpg`, { type: 'image/jpeg' }))
       .filter(Boolean));
     j.files.then((f) => { j.filesReady = f; });
   }
@@ -827,7 +855,11 @@ export function buildSession(j) {
     for (const e of kept) punches[e.fix]++;
     const log = kept.map((e) => ({ t: e.t, type: e.fix }));
     const sequences = sequencesFrom(log);
-    return { ...r, punches, totalPunches: kept.length, sequences, stream: streamFrom(log), ...comboStats(sequences) };
+    // Feints you unticked don't count, nor do set-ups by a feint you unticked.
+    const feints = j.events.filter((e) => e.kind === 'feint' && e.round === idx + 1 && e.keep).length;
+    const feintSetups = Math.min(feints, kept.filter((e) => e.afterFeint).length);
+    const perMin = r.feints && r.feintsPerMin ? feints * (r.feintsPerMin / r.feints) : null;
+    return { ...r, punches, totalPunches: kept.length, sequences, stream: streamFrom(log), ...comboStats(sequences), feints, feintSetups, feintsPerMin: perMin != null ? Math.round(perMin * 10) / 10 : r.feintsPerMin };
   });
   const form = combineRounds(rounds);
   return {

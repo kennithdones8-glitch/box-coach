@@ -1,5 +1,5 @@
 // Offline support: cache the app shell, and cache the pose model/runtime after first use.
-const CACHE = 'boxcoach-2026.10.09-3'; // must match APP_VERSION in js/app.js (a test checks)
+const CACHE = 'boxcoach-2026.10.09-4'; // must match APP_VERSION in js/app.js (a test checks)
 // Pages and pictures the app works without: cached if they load, never a reason to refuse an update.
 const OPTIONAL = ['about.html', 'privacy.html', 'support.html', 'img/1-today.jpg', 'img/3-punch-test.jpg', 'img/5-progress.jpg', 'voice/manifest.json'];
 // Everything the app needs to run offline. If one fails to load the update doesn't install (the
