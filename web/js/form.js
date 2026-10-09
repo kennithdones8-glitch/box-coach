@@ -13,6 +13,7 @@ export const LM = {
   L_EL: 13, R_EL: 14,
   L_WR: 15, R_WR: 16,
   L_HIP: 23, R_HIP: 24,
+  L_KNEE: 25, R_KNEE: 26,
   L_ANK: 27, R_ANK: 28,
 };
 
@@ -78,6 +79,29 @@ export function angleDeg(a, b, c) {
   return (Math.acos(Math.max(-1, Math.min(1, dot / m))) * 180) / Math.PI;
 }
 
+// Sparring: which of the boxer's wrists (LM.L_WR / LM.R_WR) sit on someone else's outstretched
+// glove. Shelled up under a jab, the pose model often hands the partner's straight arm to the
+// boxer, which reads as the boxer punching. Image landmarks; aspect = width / height.
+export function onTheirGlove(ours, others = [], aspect = 1) {
+  const P = (p) => ({ x: p.x * aspect, y: p.y });
+  const mid = (a, b) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
+  const torso = (pts) => Math.hypot(...(([a, b]) => [a.x - b.x, a.y - b.y])([P(mid(pts[LM.L_SH], pts[LM.R_SH])), P(mid(pts[LM.L_HIP], pts[LM.R_HIP]))])) || 0.2;
+  const size = torso(ours);
+  const out = new Set();
+  for (const pts of others) {
+    const ts = torso(pts);
+    for (const [sh, el, wr] of [[LM.L_SH, LM.L_EL, LM.L_WR], [LM.R_SH, LM.R_EL, LM.R_WR]]) {
+      if ((pts[wr]?.visibility ?? 1) < 0.3) continue;
+      const reach = Math.hypot(P(pts[wr]).x - P(pts[sh]).x, P(pts[wr]).y - P(pts[sh]).y) / ts;
+      if (reach < 0.8 || angleDeg(P(pts[sh]), P(pts[el]), P(pts[wr])) < 135) continue; // their arm isn't out
+      for (const mine of [LM.L_WR, LM.R_WR]) {
+        if (Math.hypot(P(ours[mine]).x - P(pts[wr]).x, P(ours[mine]).y - P(pts[wr]).y) < 0.35 * size) out.add(mine);
+      }
+    }
+  }
+  return out;
+}
+
 // Pick which detected person is the boxer when more than one is in frame (pads, sparring).
 // `prefer`: 'auto' (largest/closest), 'left' or 'right' as seen in the video. Once locked on,
 // stay with the person nearest the previous position.
@@ -112,9 +136,29 @@ export function personFeatures(pts) {
 
 const colorDist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
 
+// What someone looks like: average colour of their top and of their legs ({ torso, legs }, each
+// [r, g, b] or missing). A bare [r, g, b] is a top colour.
+const asLook = (c) => (!c ? null : Array.isArray(c) ? { torso: c } : c);
+export function lookDist(a, b) {
+  a = asLook(a); b = asLook(b);
+  if (!a || !b) return null;
+  const ds = ['torso', 'legs'].filter((k) => a[k] && b[k]).map((k) => colorDist(a[k], b[k]));
+  return ds.length ? ds.reduce((x, y) => x + y, 0) / ds.length : null;
+}
+function blend(a, b, k) {
+  const out = { ...asLook(a) };
+  for (const r of ['torso', 'legs']) {
+    const nb = asLook(b)?.[r];
+    if (nb) out[r] = out[r] ? out[r].map((c, i) => c * (1 - k) + nb[i] * k) : nb;
+  }
+  return out;
+}
+
 export class PersonTracker {
   constructor() {
     this.target = null;
+    this.anchor = null; // how they looked when picked: never drifts towards someone else
+    this.rivals = []; // how the other people in the video look
     this.lostSince = null;
     this.crowd = false; // ever seen more than one person
   }
@@ -123,13 +167,37 @@ export class PersonTracker {
     return !!this.target;
   }
 
-  lockOn(pts, color = null) {
-    this.target = { ...personFeatures(pts), color };
+  lockOn(pts, look = null) {
+    this.target = { ...personFeatures(pts), look: asLook(look) };
+    this.anchor = asLook(look);
+    if (look) this.rivals = this.rivals.filter((r) => (lookDist(r, look) ?? 0) > 30);
     this.lostSince = null;
   }
 
-  // people: image landmarks per detected person; colors: [r, g, b] torso colour per person.
-  pick(people, colors = [], t = 0) {
+  // How unlike the boxer someone looks (null: no colours to go on).
+  _unlike(look) {
+    const ds = [lookDist(look, this.anchor), lookDist(look, this.target.look)].filter((d) => d != null);
+    return ds.length ? Math.min(...ds) : null;
+  }
+
+  // Clearly not the boxer: looks closer to someone else in the video, or nothing like the boxer.
+  _stranger(look, strict) {
+    const d = this._unlike(look);
+    if (d == null) return false;
+    const rival = Math.min(Infinity, ...this.rivals.map((r) => lookDist(look, r) ?? Infinity));
+    if (rival < d * 0.8) return true;
+    return d > (strict ? 50 : 85);
+  }
+
+  _learnRival(look) {
+    if (!look || (this._unlike(look) ?? Infinity) < 20) return;
+    const same = this.rivals.find((r) => (lookDist(r, look) ?? Infinity) < 30);
+    if (same) Object.assign(same, blend(same, look, 0.1));
+    else this.rivals = [...this.rivals, asLook(look)].slice(-3);
+  }
+
+  // people: image landmarks per detected person; looks: { torso, legs } colours per person.
+  pick(people, looks = [], t = 0) {
     if (!this.target || !people?.length) {
       if (this.target && this.lostSince == null) this.lostSince = t;
       return -1;
@@ -138,22 +206,27 @@ export class PersonTracker {
     // Nobody else has ever been in shot: the one person found is the boxer, however their
     // position, size or colours changed (a wrong first look used to lose them for good).
     if (people.length === 1 && !this.crowd) {
-      this.lockOn(people[0], colors[0] || this.target.color);
+      this.target = { ...personFeatures(people[0]), look: asLook(looks[0]) || this.target.look };
+      this.anchor = this.anchor || this.target.look;
+      this.lostSince = null;
       return 0;
     }
-    const lost = this.lostSince != null && t - this.lostSince > 1000;
+    const lost = this.lostSince != null && t - this.lostSince > 500;
+    // Only one person left in a video with others in it: being where the boxer was is no
+    // evidence (the partner steps into that spot). Only looking like the boxer counts.
+    const strict = lost || people.length === 1;
     let best = -1, bestScore = Infinity;
     people.forEach((pts, i) => {
+      if (this._stranger(looks[i], strict)) return;
       const f = personFeatures(pts);
       const pd = Math.hypot(f.x - this.target.x, f.y - this.target.y);
       const sd = Math.abs(Math.log(f.size / this.target.size));
-      const cd = colors[i] && this.target.color ? colorDist(colors[i], this.target.color) : null;
+      const cd = this._unlike(looks[i]);
       // After losing them for a while, position is stale: rely on appearance.
-      let score = (lost ? Math.min(pd / 0.2, 1) : pd / 0.2) + sd * 2 + (cd != null ? cd / 45 : 0.6);
-      if (cd != null && cd > 85) score += 10; // clearly a different person
+      const score = (lost ? Math.min(pd / 0.2, 1) : pd / 0.2) + sd * 2 + (cd != null ? cd / 45 : 0.6);
       if (score < bestScore) { bestScore = score; best = i; }
     });
-    if (bestScore > 3.5) {
+    if (best < 0 || bestScore > 3.5) {
       if (this.lostSince == null) this.lostSince = t;
       return -1;
     }
@@ -161,11 +234,10 @@ export class PersonTracker {
     this.target.x = f.x;
     this.target.y = f.y;
     this.target.size = this.target.size * 0.8 + f.size * 0.2;
-    if (colors[best]) {
-      this.target.color = this.target.color && bestScore < 2
-        ? this.target.color.map((c, k) => c * 0.9 + colors[best][k] * 0.1)
-        : this.target.color || colors[best];
-    }
+    // Light changes as they move: follow it slowly, and only on a confident match.
+    if (looks[best] && bestScore < 2) this.target.look = this.target.look ? blend(this.target.look, looks[best], 0.1) : asLook(looks[best]);
+    this.anchor = this.anchor || asLook(looks[best]);
+    if (people.length > 1 && bestScore < 2) people.forEach((_, i) => { if (i !== best) this._learnRival(looks[i]); });
     this.lostSince = null;
     return best;
   }
@@ -570,6 +642,9 @@ export class FormAnalyzer {
     this.recent = []; // recent punch measurements, for learning which way is forward
     this.fwd2d = { sum: 0, n: 0 }; // side-on: which way the straights go in the picture
     this.pending = []; // punches held for PAIR_MS in case the other hand fires at the same moment
+    this.others = []; // other people in this frame (video): image landmarks
+    this.doubt = []; // times the video tracking was unsure (lost, just found again, blocked)
+    this.theirs = { lead: [], rear: [] }; // times each wrist sat on someone else's outstretched glove
     this.learnedAxis = null;
     this.roundNo = 0;
     // Raw measurements behind each punch decision, for tuning thresholds to a real boxer.
@@ -628,6 +703,23 @@ export class FormAnalyzer {
     return t - this.since[key];
   }
 
+  // Video only, before update(): who else is in the frame, and whether tracking is unsure now.
+  context({ others = [], unsure = false } = {}, t = 0) {
+    this.others = others;
+    if (unsure) this.doubt.push(t);
+    const old = t - 3000;
+    this.doubt = this.doubt.filter((x) => x > old);
+    for (const k of ['lead', 'rear']) this.theirs[k] = this.theirs[k].filter((x) => x > old);
+  }
+
+  // A punch that started or peaked while tracking was unsure, or with the wrist on the partner's
+  // outstretched glove, is not counted ('track' / 'theirs').
+  _doubtful(role, start, peak) {
+    if (this.doubt.some((x) => x >= start - 250 && x <= peak + 150)) return 'track';
+    if (this.theirs[role].some((x) => x >= peak - 150 && x <= peak + 100)) return 'theirs';
+    return null;
+  }
+
   update(world, image, t) {
     this.now = t;
     this.seen = null; // set again below only when the body is in view this frame
@@ -650,6 +742,10 @@ export class FormAnalyzer {
     image = fixed.image;
     this.armPrev = { ...fixed.prev, t };
     if (fixed.swapped && this.active) this.calib.swaps = (this.calib.swaps || 0) + 1;
+    if (this.others.length) {
+      const touch = onTheirGlove(image, this.others, this.aspect);
+      for (const k of ['lead', 'rear']) if (touch.has(this.hands[k].wr)) this.theirs[k].push(t);
+    }
     // Up = feet → hips, averaged over time (hips sit over the feet in any stance).
     const feet = (image[LM.L_ANK]?.visibility ?? 1) > 0.5 && (image[LM.R_ANK]?.visibility ?? 1) > 0.5;
     if (this.active && feet) this.feetSeen = (this.feetSeen || 0) + 1;
@@ -997,6 +1093,13 @@ export class FormAnalyzer {
   }
 
   _registerPunch(role, h, t) {
+    const why = this._doubtful(role, t - (h.dur || 0), h.peakT ?? t);
+    if (why) {
+      this.hands[role].returnSince = null;
+      this._calibPush('rejected', [role === 'lead' ? 'L' : 'R', r2(h.peakSpeed), r2(h.peakExt), Math.round(h.peakAngle), 0, why]);
+      if (this.active) { this.calib.gated = this.calib.gated || {}; this.calib.gated[why] = (this.calib.gated[why] || 0) + 1; }
+      return;
+    }
     const feats = { angle: h.peakAngle, ext: h.peakExt, rise: h.maxRise, path: h.path };
     const axis = this.axis();
     const base = classifyPunch({ ...feats, role }, axis, this.cal);
