@@ -17,18 +17,18 @@
   <link rel="icon" href="icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="icon-192.png">
   <style>
-    :root { --bg: #f3f4f6; --surface: #fff; --ink: #111318; --ink-2: #454a55; --muted: #5c6270; --line: #e2e5ea; --accent: #e11d2e; }
+    :root { --bg: #f3f4f6; --surface: #fff; --ink: #111318; --ink-2: #454a55; --muted: #5c6270; --line: #e2e5ea; --accent: #8a6100; }
     @media (prefers-color-scheme: dark) {
-      :root { --bg: #0b0c0e; --surface: #15171b; --ink: #f3f4f6; --ink-2: #c2c6ce; --muted: #8a909b; --line: #262930; --accent: #ff4655; }
+      :root { --bg: #0b0c0e; --surface: #15171b; --ink: #f3f4f6; --ink-2: #c2c6ce; --muted: #8a909b; --line: #262930; --accent: #f5b700; }
     }
     * { box-sizing: border-box; }
     body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
     main { max-width: 560px; margin: 0 auto; padding: 24px 16px 48px; }
-    .hero { background: linear-gradient(135deg, #e11d2e, #7a0f18); color: #fff; border-radius: 20px; padding: 24px 20px; }
+    .hero { background: radial-gradient(120% 90% at 100% 0%, rgba(245, 183, 0, 0.22), transparent 60%), #0a0b0d; color: #eceef1; border: 1px solid rgba(245, 183, 0, 0.35); border-radius: 20px; padding: 24px 20px; }
     .hero img { width: 48px; height: 48px; }
     h1 { font-size: 2rem; margin: 8px 0 4px; letter-spacing: -0.02em; }
     .hero p { margin: 0; color: rgba(255, 255, 255, 0.92); }
-    .open { display: block; text-align: center; margin-top: 18px; background: #fff; color: #7a0f18; font-weight: 800; text-decoration: none; padding: 14px; border-radius: 14px; }
+    .open { display: block; text-align: center; margin-top: 18px; background: #f5b700; color: #111214; font-weight: 800; text-decoration: none; padding: 14px; border-radius: 14px; }
     section { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 16px 18px; margin-top: 14px; }
     h2 { font-size: 1.1rem; margin: 0 0 8px; }
     ul, ol { margin: 0; padding-left: 20px; color: var(--ink-2); }
@@ -52,7 +52,7 @@
 
     <div class="shots" role="region" aria-label="Screenshots" tabindex="0">
       <figure><img src="img/1-today.jpg" alt="Today: your coach's plan for the day" loading="lazy" width="780" height="1560"><figcaption>Your plan for today</figcaption></figure>
-      <figure><img src="img/3-punch-test.jpg" alt="Punch test result: what the camera read right" loading="lazy" width="780" height="1560"><figcaption>It learns how you punch</figcaption></figure>
+      <figure><img src="img/3-punch-test.jpg" alt="Punches: what you throw, and the drill for what to fix" loading="lazy" width="780" height="1560"><figcaption>Every punch, and what to fix</figcaption></figure>
       <figure><img src="img/5-progress.jpg" alt="Progress: records, badges and friends" loading="lazy" width="780" height="1560"><figcaption>Records, badges, friends</figcaption></figure>
     </div>
 

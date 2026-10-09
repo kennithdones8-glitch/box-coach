@@ -1,6 +1,6 @@
 // Punches: your punch analysis on one page. What you throw, how each punch is doing and changing,
 // what to work on, and drills for it (each one starts as a practice session).
-import { punchStats, drillsFor, PUNCH_DRILLS } from '../punchstats.js';
+import { punchStats, drillsFor, drillProgress, PUNCH_DRILLS } from '../punchstats.js';
 import { PUNCH_DIGIT } from '../form.js';
 import { speedIn } from '../coach.js';
 import { $$, esc, shortDate, pageHead } from '../ui.js';
@@ -34,6 +34,7 @@ export function renderPunches(el, app) {
   el.innerHTML = `
     ${pageHead('Punches', { eyebrow: `${label} · ${st.sessions} camera session${st.sessions === 1 ? '' : 's'}` })}
     <div class="seg range" role="group" aria-label="Period">${RANGES.map(([k, l]) => `<label><input type="radio" name="prange" value="${k}" ${k === days ? 'checked' : ''}><span>${l}</span></label>`).join('')}</div>
+    ${drillsCard(drillProgress(state.sessions))}
     ${!st.total ? `
     <section class="card">
       <h2>No punch data in this period</h2>
@@ -121,4 +122,24 @@ export function renderPunches(el, app) {
     const d = PUNCH_DRILLS[type]?.[+i];
     if (d) app.startDrill(type, d);
   }));
+}
+
+// Did the drill work? Each drill you've practised, and what it targets in your other training.
+const VERDICT = { better: 'Working', same: 'No change yet', worse: 'Worse', early: 'Too early' };
+function drillsCard(list) {
+  if (!list.length) return '';
+  const num = (v, u) => (v == null ? '–' : `${v}${u}`);
+  return `<section class="card">
+    <div class="card-head"><h2>Your drills</h2><span class="muted small">checked in your other training</span></div>
+    <ul class="dp">${list.slice(0, 4).map((d) => {
+      const i = (PUNCH_DRILLS[d.punch] || []).findIndex((x) => x.name === d.name);
+      return `<li>
+        <div class="dp-head"><span class="pnum">${d.punch === 'feints' ? 'F' : PUNCH_DIGIT[d.punch] ?? ''}</span><b>${esc(d.name)}</b><span class="vd ${d.verdict}">${VERDICT[d.verdict]}</span></div>
+        <p class="small muted">Practised ${d.times}× · since ${esc(shortDate(d.first))}</p>
+        ${d.metrics.length && !(d.verdict === 'early' && d.afterSessions < 2) ? `<ul class="dp-m">${d.metrics.map((m) => `<li class="${m.verdict || ''}">${esc(m.label)}: <b>${num(m.before, m.unit)} → ${num(m.after, m.unit)}</b> <span class="muted">${m.verdict ? `(${m.nBefore} vs ${m.nAfter} sessions)` : `· needs 2+ camera sessions before and since (${m.nBefore} / ${m.nAfter})`}</span></li>`).join('')}</ul>`
+          : `<p class="small">Train normally with the camera on ${d.afterSessions ? 'once more' : 'a couple of times'} and this shows whether it carried over into your boxing.</p>`}
+        ${i >= 0 ? `<button class="btn ghost sm" type="button" data-drill="${d.punch}:${i}">Practise again</button>` : ''}
+      </li>`;
+    }).join('')}</ul>
+  </section>`;
 }

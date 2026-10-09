@@ -53,3 +53,29 @@ test('every punch has drills the coach can call, best fit for the problem first'
   assert.equal(drillsFor('jab', [{ key: 'rearDrop' }])[0].name, 'Freeze-check jab');
   assert.equal(drillsFor('cross', [{ key: 'slowReturn' }])[0].name, 'Cross and home');
 });
+
+test('did the drill work: the targeted number in your other training, before vs since', async () => {
+  const { drillProgress } = await import('../web/js/punchstats.js');
+  const sessions = [
+    // Before the drill: rear hand drops on a third of jabs.
+    sess(30, mix(100, 60, 20, 10, 5, 5), { form: { rearDropPct: 35, leadReturnMs: 420 } }),
+    sess(26, mix(100, 60, 20, 10, 5, 5), { form: { rearDropPct: 33, leadReturnMs: 410 } }),
+    // Three drill sessions (left out of the comparison: slow, focused jabs).
+    sess(20, mix(90, 0, 0, 0, 0, 0), { drill: { punch: 'jab', name: 'Freeze-check jab' }, form: { rearDropPct: 5 } }),
+    sess(16, mix(90, 0, 0, 0, 0, 0), { drill: { punch: 'jab', name: 'Freeze-check jab' }, form: { rearDropPct: 4 } }),
+    sess(12, mix(90, 0, 0, 0, 0, 0), { drill: { punch: 'jab', name: 'Freeze-check jab' } }),
+    // Normal training since: the habit carried over.
+    sess(8, mix(100, 60, 20, 10, 5, 5), { form: { rearDropPct: 20, leadReturnMs: 400 } }),
+    sess(4, mix(100, 60, 20, 10, 5, 5), { form: { rearDropPct: 16, leadReturnMs: 395 } }),
+  ];
+  const [d] = drillProgress(sessions, { now });
+  assert.equal(d.name, 'Freeze-check jab');
+  assert.equal(d.times, 3);
+  const drop = d.metrics.find((m) => m.key === 'rearDrop');
+  assert.deepEqual([drop.before, drop.after, drop.nBefore, drop.nAfter, drop.verdict], [34, 18, 2, 2, 'better']);
+  assert.equal(d.verdict, 'better');
+  // Right after starting, with nothing since: too early to say.
+  const early = drillProgress(sessions.slice(0, 5), { now })[0];
+  assert.equal(early.verdict, 'early');
+  assert.equal(drillProgress(sessions.filter((s) => !s.drill), { now }).length, 0, 'no drills, nothing shown');
+});
