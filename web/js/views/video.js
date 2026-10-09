@@ -205,8 +205,8 @@ function nextFrame(video, ms = 3000) {
   });
 }
 
-// Over the video: the boxer's skeleton with a "You" tag (or "The boxer" for a pro clip), and
-// everyone else faint. While choosing, everyone is drawn dashed with a "Tap" tag.
+// Over the video: a ring on the floor under the boxer, their gloves and a "You" tag ("Boxer" for
+// a pro clip); nobody else is marked. While choosing, everyone gets a dashed ring and a "Tap" tag.
 function drawPeople(canvas, video, people, chosen, { picking = false, tag = 'You' } = {}) {
   // Overlay at most 720 px too: a 4K canvas redrawn every frame is heavy on a phone.
   const k = Math.min(1, 720 / Math.max(video.videoWidth || 1, video.videoHeight || 1));
