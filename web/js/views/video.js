@@ -330,6 +330,8 @@ async function analyse(file, video, opts, el, app) {
 
     analyzer.startRound();
     const started = performance.now();
+    const cost = { grab: 0, looks: 0, sheets: 0, analyse: 0, draw: 0 }; // ms per step, for the report
+    const lap = (k, t0) => { const t1 = performance.now(); cost[k] += t1 - t0; return t1; };
     let detectMs = 0, asks = 0, askedThisLoss = false, foundAt = -Infinity, wasLost = false, unsureN = 0;
 
     // Analyse one frame. Returns the people in it (and their looks) when the boxer has been lost
@@ -343,12 +345,16 @@ async function analyse(file, video, opts, el, app) {
         roundEnd += roundMs;
       }
       let r = null;
+      let c0 = performance.now();
       const frame = grabFrame(video);
-      const d0 = performance.now();
+      c0 = lap('grab', c0);
+      const d0 = c0;
       try { r = detectVideoFrame(lm, frame); } catch { r = null; }
       detectMs += performance.now() - d0;
       const people = r?.landmarks || [];
+      c0 = performance.now();
       const looks = people.length > 1 || tracker.crowd ? sampleLooks(frame, people) : [];
+      lap('looks', c0);
       let idx = -1;
       if (tracker.locked) idx = tracker.pick(people, looks, t);
       else if (people.length) {
@@ -368,11 +374,15 @@ async function analyse(file, video, opts, el, app) {
       const unsure = tracker.crowd && (idx < 0 || t - foundAt < 300 || covered(people, idx) > 0.35);
       if (unsure) unsureN++;
       analyzer.context({ others: idx >= 0 ? people.filter((_, i) => i !== idx) : [], unsure }, t);
+      c0 = performance.now();
       sheets.add(frame, image, t);
+      c0 = lap('sheets', c0);
       if (people.length > 1) multi++;
       frames++;
       analyzer.update(world || null, image, t);
+      c0 = lap('analyse', c0);
       drawPeople(overlay, video, people, idx);
+      lap('draw', c0);
       if (frames % 5 === 0) {
         $('#vidBar', el).style.width = `${Math.min(100, (t / durMs) * 100)}%`;
         status.textContent = `Analysing ${fmtT(t)} / ${fmtT(durMs)} · ${analyzer.events.filter((e) => e.kind === 'punch').length} punches · body found in ${Math.round((tracked / frames) * 100)}% of frames`;
@@ -396,7 +406,7 @@ async function analyse(file, video, opts, el, app) {
     };
 
     const gap = 1000 / opts.fps - 5;
-    let mode = 'step';
+    let mode = 'step', flowRate = 1;
     if ('requestVideoFrameCallback' in HTMLVideoElement.prototype) {
       // Play the video and analyse frames as they show. Fastest is to keep it playing, at a speed
       // that leaves time to analyse each frame we want ('flow'). If frames we wanted go by
@@ -462,6 +472,7 @@ async function analyse(file, video, opts, el, app) {
                 rate = Math.min(2.5, Math.max(0.5, n <= 1 ? rate + 0.005 : rate * 0.8)); // creep up, back off fast
               }
               prevT = t;
+              flowRate = rate;
               if (Math.abs(video.playbackRate - rate) > 0.1) video.playbackRate = rate;
               // Too slow to keep up even at half speed, or frames slipping by: pause on each one.
               slow = cost > 2 * (gap + 5) ? slow + 1 : 0;
@@ -501,7 +512,12 @@ async function analyse(file, video, opts, el, app) {
         if (frames % 5 === 0) await new Promise((res) => setTimeout(res, 0));
       }
     }
-    const speed = { ms: Math.round(performance.now() - started), detect: frames ? Math.round(detectMs / frames) : null, mode, asks, unsure: frames ? Math.round((unsureN / frames) * 100) : 0 };
+    const per = (v) => (frames ? Math.round((v / frames) * 10) / 10 : null);
+    const speed = {
+      ms: Math.round(performance.now() - started), detect: frames ? Math.round(detectMs / frames) : null, mode, asks, unsure: frames ? Math.round((unsureN / frames) * 100) : 0,
+      // Where each frame's time goes (ms), and how the playback speed settled: to make it faster where it counts.
+      per: Object.fromEntries(Object.entries(cost).map(([k, v]) => [k, per(v)])), rate: Math.round((flowRate || 1) * 100) / 100, fps: durMs ? Math.round((frames / (durMs / 1000)) * 10) / 10 : null,
+    };
     rounds.push(analyzer.endRound());
     video.pause();
     sheets.flush();
@@ -643,6 +659,8 @@ function renderReview(el, app) {
   const stance = combineRounds(j.rounds).leftLeadPct;
   const stanceTxt = stance == null ? 'unknown' : stance >= 50 ? `orthodox (${stance}% of frames)` : `southpaw (${100 - stance}% of frames)`;
   const avgConf = punches.length ? Math.round(punches.reduce((a, e) => a + e.conf, 0) / punches.length) : null;
+  const away = combineRounds(j.rounds).awayPct ?? 0;
+  const unsure = punches.filter((e) => e.typeUnsure).length;
   const uncertainOnly = el.dataset.uncertain === '1';
   const shown = [...punches, ...others].sort((a, b) => a.t - b.t).filter((e) => !uncertainOnly || e.conf < 70);
   el.innerHTML = `
@@ -654,7 +672,7 @@ function renderReview(el, app) {
         <div><b>${punches.length}</b><span>Punches${others.some((e) => e.kind === 'feint') ? ` · ${others.filter((e) => e.kind === 'feint').length} feints` : ''}</span></div>
         <div class="${avgConf == null ? '' : avgConf >= 75 ? 'good' : avgConf >= 60 ? 'warn' : 'bad'}"><b>${avgConf ?? '–'}${avgConf != null ? '%' : ''}</b><span>Avg confidence</span></div>
       </div>
-      ${j.tracked < 70 || j.multi >= 20 ? `<div class="msg behind" style="margin:0 0 10px"><b>Treat these numbers as estimates.</b> ${j.tracked < 70 ? `The camera found you in only ${j.tracked}% of frames. ` : ''}${j.multi >= 20 ? `Someone else was in ${j.multi}% of frames, so some of their movement can read as yours. ` : ''}Check the detections below.</div>` : ''}
+      ${j.tracked < 70 || j.multi >= 20 || away >= 25 ? `<div class="msg behind" style="margin:0 0 10px"><b>Treat these numbers as estimates.</b> ${j.tracked < 70 ? `The camera found you in only ${j.tracked}% of frames. ` : ''}${j.multi >= 20 ? `Someone else was in ${j.multi}% of frames, so some of their movement can read as yours. ` : ''}${away >= 25 ? `Your back was to the camera ${away}% of the time: from behind a straight punch looks bent, so jabs and crosses can read as hooks, and guard and hand return can't be measured. ${unsure} punch types are marked "type?". ` : ''}Check the detections below.</div>` : ''}
       <ul class="small">
         <li>${j.frames ?? ''} frames analysed${j.multi ? ` · ${j.multi}% had 2 people (following the person you tapped)` : ''}</li>
         <li>Stance detected: ${esc(stanceTxt)}</li>
@@ -683,7 +701,7 @@ function renderReview(el, app) {
           ${e.kind === 'punch'
             ? `<select data-fix="${e.i}">${Object.entries(PUNCH_NAMES).map(([k, n]) => opt(k, e.fix, n)).join('')}</select>`
             : `<span>${e.kind === 'guardDrop' ? 'Guard drop' : e.kind === 'feint' ? `Feint (${e.role === 'lead' ? 'lead' : 'rear'} hand)` : 'Crossed feet'}</span>`}
-          <span class="badge ${e.conf >= 80 ? 'good' : e.conf >= 60 ? 'warn' : 'bad'}">${e.conf}%</span>
+          ${e.typeUnsure ? '<span class="badge est" title="Thrown with your back to the camera: the punch type is a guess">type?</span>' : `<span class="badge ${e.conf >= 80 ? 'good' : e.conf >= 60 ? 'warn' : 'bad'}">${e.conf}%</span>`}
           ${e.ai ? `<span class="badge ai" title="Checked by Claude">${e.ai === 'added' ? 'Claude: missed' : e.ai === 'none' ? 'Claude: not a punch' : e.ai === 'same' ? 'Claude ✓' : 'Claude fixed'}</span>` : ''}
         </li>`).join('')}</ul>
     </section>
@@ -804,7 +822,8 @@ function filmingTips(j) {
   const tips = [];
   const tilt = j.calib?.tilt;
   if (tilt >= 20) tips.push(`Your phone was tilted about ${tilt}° up or down. The app corrects for it, but a level phone at chest height reads punches and guard more reliably.`);
-  const side = combineRounds(j.rounds).sidePct;
+  const { sidePct: side, awayPct: away } = combineRounds(j.rounds);
+  if (away >= 25) tips.push(`The camera was behind you ${away}% of the time. Put it in front of you or at 45°, with the bag beside you, not between you and the phone.`);
   if (side >= 60) tips.push(`You were side-on to the camera ${side}% of the time, which hides your far arm. Face the camera or stand at 45°.`);
   return tips.length ? `<b>Next time you film:</b> ${tips.map(esc).join(' ')}` : '';
 }

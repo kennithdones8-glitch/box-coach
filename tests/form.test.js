@@ -824,3 +824,24 @@ test('feints: a sharp half-jab that stops short and snaps back is a feint, not a
   const g = run(seq);
   assert.equal(g.feints, 0, 'guard moving is not a feint');
 });
+
+test('filmed from behind: noticed, punch types flagged, and the session left out of form stats', async () => {
+  const { trackingOk } = await import('../web/js/coach.js');
+  const jab = () => punch(LM.L_WR, LM.L_EL, { x: 0.16, y: -0.49, z: -0.61 }, { x: 0.17, y: -0.47, z: -0.33 });
+  // Back to the camera: the nose is further from the lens than the ears.
+  const back = (w) => { w[LM.NOSE] = { ...w[LM.NOSE], z: 0.12 }; w[LM.L_EAR] = { ...w[LM.L_EAR], z: 0.0 }; w[LM.R_EAR] = { ...w[LM.R_EAR], z: 0.0 }; return w; };
+  const run = (turn) => {
+    const an = new FormAnalyzer();
+    an.startRound();
+    let t = 0;
+    for (let i = 0; i < 5; i++) t = feed(an, [...jab(), ...still(20)].map((w) => (turn ? back(w) : w)), t);
+    return { r: an.endRound(), ev: an.events.filter((e) => e.kind === 'punch') };
+  };
+  const front = run(false), behind = run(true);
+  assert.equal(front.r.awayPct, 0);
+  assert.ok(front.ev.length && front.ev.every((e) => !e.typeUnsure));
+  assert.ok(behind.r.awayPct > 90, `away ${behind.r.awayPct}%`);
+  assert.ok(behind.ev.length && behind.ev.every((e) => e.typeUnsure), 'punch types marked as a guess');
+  assert.equal(trackingOk({ form: { awayPct: 56 } }), false);
+  assert.equal(trackingOk({ form: { awayPct: 10 } }), true);
+});
