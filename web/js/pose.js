@@ -99,9 +99,9 @@ export function gloveState(pts) {
   return [15, 16].map((i) => ({ i, up: pts[i].y <= limit, seen: (pts[i].visibility ?? 1) >= 0.5 }));
 }
 
-export function drawGloves(g, pts, w, h, { dim = false } = {}) {
+export function drawGloves(g, pts, w, h, { dim = false, px = 1 } = {}) {
   const shW = Math.hypot((pts[11].x - pts[12].x) * w, (pts[11].y - pts[12].y) * h);
-  const r = Math.max(8, shW * 0.22);
+  const r = Math.max(8 * px, shW * 0.22);
   for (const { i, up, seen } of gloveState(pts)) {
     if (!seen) continue;
     g.beginPath();
@@ -111,6 +111,74 @@ export function drawGloves(g, pts, w, h, { dim = false } = {}) {
     g.lineWidth = Math.max(2, r * 0.18);
     g.strokeStyle = dim ? 'rgba(255,255,255,0.6)' : up ? '#22c55e' : '#ef4444';
     g.stroke();
+  }
+}
+
+// The body drawn over the camera or a video: a skeleton you can see on any background (white
+// lines with a dark edge), a ring round the head, and the gloves in colour (green = up at guard,
+// red = dropped). style: 'me' (the boxer being followed), 'pick' (tap to choose, dashed) or
+// 'other' (someone else in shot, faint). label: a tag above the head ('You', 'Tap'), or none.
+const BONES = [
+  [11, 12], [11, 23], [12, 24], [23, 24], // torso
+  [11, 13], [13, 15], [12, 14], [14, 16], // arms
+  [23, 25], [25, 27], [24, 26], [26, 28], // legs
+];
+export function drawBody(g, pts, w, h, { style = 'me', label = '' } = {}) {
+  // Canvas pixels per screen pixel: a 720 px video shown 220 px wide still gets readable lines.
+  const px = Math.max(1, w / (g.canvas.clientWidth || w));
+  const P = (i) => ({ x: pts[i].x * w, y: pts[i].y * h });
+  const ok = (i) => (pts[i]?.visibility ?? 1) >= 0.35;
+  const shW = Math.max(20, Math.hypot(P(11).x - P(12).x, P(11).y - P(12).y));
+  const lw = style === 'other' ? Math.max(1.5 * px, shW * 0.03) : Math.max(3 * px, shW * 0.05);
+  const path = () => {
+    g.beginPath();
+    for (const [a, b] of BONES) {
+      if (!ok(a) || !ok(b)) continue;
+      g.moveTo(P(a).x, P(a).y);
+      g.lineTo(P(b).x, P(b).y);
+    }
+  };
+  g.save();
+  g.lineCap = 'round';
+  g.lineJoin = 'round';
+  if (style === 'pick') g.setLineDash([lw * 3, lw * 2.5]);
+  if (style !== 'other') { // dark edge first, so white lines show on a bright background too
+    path();
+    g.lineWidth = lw * 2.2;
+    g.strokeStyle = 'rgba(0,0,0,0.35)';
+    g.stroke();
+  }
+  path();
+  g.lineWidth = lw;
+  g.strokeStyle = style === 'other' ? 'rgba(255,255,255,0.35)' : 'rgba(255,255,255,0.92)';
+  g.stroke();
+  // Head: a ring between the ears.
+  const head = ok(0) ? P(0) : null;
+  const r = ok(7) && ok(8) ? Math.max(9 * px, Math.hypot(P(7).x - P(8).x, P(7).y - P(8).y) * 0.75) : Math.max(9 * px, shW * 0.28);
+  if (head) {
+    g.beginPath();
+    g.arc(head.x, head.y, r, 0, Math.PI * 2);
+    if (style !== 'other') { g.lineWidth = lw * 2.2; g.strokeStyle = 'rgba(0,0,0,0.35)'; g.stroke(); }
+    g.lineWidth = lw;
+    g.strokeStyle = style === 'other' ? 'rgba(255,255,255,0.35)' : 'rgba(255,255,255,0.92)';
+    g.stroke();
+  }
+  g.restore();
+  if (style === 'me') drawGloves(g, pts, w, h, { px });
+  if (label && head) {
+    g.save();
+    const fs = Math.round(Math.max(12 * px, shW * 0.3));
+    g.font = `700 ${fs}px system-ui, -apple-system, sans-serif`;
+    const tw = g.measureText(label).width, pad = fs * 0.6, bh = fs * 1.6;
+    const x = head.x - tw / 2 - pad, y = head.y - r - bh - fs * 0.4;
+    g.fillStyle = style === 'me' ? '#ff4655' : 'rgba(20,20,24,0.75)';
+    g.beginPath();
+    g.roundRect ? g.roundRect(x, y, tw + pad * 2, bh, bh / 2) : g.rect(x, y, tw + pad * 2, bh);
+    g.fill();
+    g.fillStyle = '#fff';
+    g.textBaseline = 'middle';
+    g.fillText(label, x + pad, y + bh / 2);
+    g.restore();
   }
 }
 
@@ -214,7 +282,7 @@ export class PoseTracker {
     }
     const g = c.getContext('2d');
     g.clearRect(0, 0, c.width, c.height);
-    if (pts) drawGloves(g, pts, c.width, c.height);
+    if (pts) drawBody(g, pts, c.width, c.height);
   }
 
   stopCamera() {

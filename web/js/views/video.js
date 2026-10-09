@@ -9,7 +9,7 @@ import { calibrateFromCombo, trustedCal } from '../calibrate.js';
 import { harvest, addExamples, spotModel } from '../personal.js';
 import { saveReference } from './study.js';
 import { takePreset } from './handoff.js';
-import { drawGloves } from '../pose.js';
+import { drawBody } from '../pose.js';
 import { buildReport } from '../report.js';
 import { FrameSheets, aiKey, checkWithClaude, applyAi, AI_MODELS } from '../aicheck.js';
 
@@ -205,32 +205,19 @@ function nextFrame(video, ms = 3000) {
   });
 }
 
-// Over the video: a rounded box around each person (the one being followed in red) and the
-// tracked boxer's gloves. Clearer than skeleton lines, and a box is easy to tap.
-function drawPeople(canvas, video, people, chosen) {
+// Over the video: the boxer's skeleton with a "You" tag (or "The boxer" for a pro clip), and
+// everyone else faint. While choosing, everyone is drawn dashed with a "Tap" tag.
+function drawPeople(canvas, video, people, chosen, { picking = false, tag = 'You' } = {}) {
   // Overlay at most 720 px too: a 4K canvas redrawn every frame is heavy on a phone.
   const k = Math.min(1, 720 / Math.max(video.videoWidth || 1, video.videoHeight || 1));
   const cw = Math.round(video.videoWidth * k), ch = Math.round(video.videoHeight * k);
   if (canvas.width !== cw || canvas.height !== ch) { canvas.width = cw; canvas.height = ch; }
   const g = canvas.getContext('2d');
   g.clearRect(0, 0, canvas.width, canvas.height);
-  people.forEach((pts, i) => {
-    const seen = pts.filter((p) => (p.visibility ?? 1) > 0.3);
-    if (seen.length < 5) return;
-    const xs = seen.map((p) => p.x * cw), ys = seen.map((p) => p.y * ch);
-    const pad = cw * 0.03;
-    const x0 = Math.min(...xs) - pad, y0 = Math.min(...ys) - pad, x1 = Math.max(...xs) + pad, y1 = Math.max(...ys) + pad;
-    const on = i === chosen;
-    if (chosen >= 0 && !on) return; // once you're picked, only you are marked
-    g.lineWidth = Math.max(3, cw / 180);
-    g.strokeStyle = on ? '#ff4655' : 'rgba(255,255,255,0.7)';
-    g.setLineDash(on || chosen >= 0 ? [] : [10, 8]);
-    g.beginPath();
-    g.roundRect ? g.roundRect(x0, y0, x1 - x0, y1 - y0, 14) : g.rect(x0, y0, x1 - x0, y1 - y0);
-    g.stroke();
-    g.setLineDash([]);
-    if (on) drawGloves(g, pts, cw, ch);
-  });
+  const crowd = people.length > 1;
+  // Others first, so the boxer is drawn on top where they overlap.
+  people.forEach((pts, i) => { if (i !== chosen) drawBody(g, pts, cw, ch, picking ? { style: 'pick', label: crowd ? 'Tap' : '' } : { style: 'other' }); });
+  if (chosen >= 0 && people[chosen]) drawBody(g, people[chosen], cw, ch, { style: 'me', label: crowd ? tag : '' });
 }
 
 async function analyse(file, video, opts, el, app) {
@@ -293,10 +280,11 @@ async function analyse(file, video, opts, el, app) {
       scanCosts.push(performance.now() - d0);
     }
     const target = opts.subject === 'pro' ? 'the boxer' : 'yourself';
+    const tag = opts.subject === 'pro' ? 'Boxer' : 'You';
     // Ask the boxer to tap themselves: at the start, and again if they're lost for a while.
     // Resolves to the person's index, or -1 for "not in shot" (again) or cancel.
     const askWho = (people, again) => {
-      drawPeople(overlay, video, people, -1);
+      drawPeople(overlay, video, people, -1, { picking: true });
       status.innerHTML = again ? `<b>Lost you.</b> Tap ${target} to carry on.` : `<b>Tap ${target}</b> in the video to start.`;
       stage.dataset.pick = `Tap ${target}`;
       stage.classList.add('pick');
@@ -329,7 +317,7 @@ async function analyse(file, video, opts, el, app) {
       tracker.lockOn(first[i], colors[i]);
       tracker.crowd = true;
       who = 'tap';
-      drawPeople(overlay, video, first, i);
+      drawPeople(overlay, video, first, i, { tag });
     } else if (first.length === 1) {
       tracker.lockOn(first[0], colors[0]);
     }
@@ -378,7 +366,7 @@ async function analyse(file, video, opts, el, app) {
       if (people.length > 1) multi++;
       frames++;
       analyzer.update(world || null, image, t);
-      drawPeople(overlay, video, people, idx);
+      drawPeople(overlay, video, people, idx, { tag });
       if (frames % 5 === 0) {
         $('#vidBar', el).style.width = `${Math.min(100, (t / durMs) * 100)}%`;
         status.textContent = `Analysing ${fmtT(t)} / ${fmtT(durMs)} · ${analyzer.events.filter((e) => e.kind === 'punch').length} punches · body found in ${Math.round((tracked / frames) * 100)}% of frames`;
