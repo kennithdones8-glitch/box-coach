@@ -114,58 +114,60 @@ export function drawGloves(g, pts, w, h, { dim = false, px = 1 } = {}) {
   }
 }
 
-// The body drawn over the camera or a video: a skeleton you can see on any background (white
-// lines with a dark edge), a ring round the head, and the gloves in colour (green = up at guard,
-// red = dropped). style: 'me' (the boxer being followed), 'pick' (tap to choose, dashed) or
-// 'other' (someone else in shot, faint). label: a tag above the head ('You', 'Tap'), or none.
-const BONES = [
-  [11, 12], [11, 23], [12, 24], [23, 24], // torso
-  [11, 13], [13, 15], [12, 14], [14, 16], // arms
-  [23, 25], [25, 27], [24, 26], [26, 28], // legs
-];
+// Who's being followed, drawn over the camera or a video: a ring on the floor under their feet
+// (like a player marker in a game), the gloves in colour (green = up at guard, red = dropped) and
+// a tag above the head. style: 'me' (the boxer being followed), 'pick' (tap to choose: dashed
+// ring) or 'other' (someone else in shot: nothing drawn). label: the tag ('You', 'Tap') or none.
+const rings = new WeakMap(); // last ring per canvas, so it glides instead of jittering
 export function drawBody(g, pts, w, h, { style = 'me', label = '' } = {}) {
-  // Canvas pixels per screen pixel: a 720 px video shown 220 px wide still gets readable lines.
+  if (style === 'other') return;
+  // Canvas pixels per screen pixel: a 720 px video shown 220 px wide still gets readable marks.
   const px = Math.max(1, w / (g.canvas.clientWidth || w));
-  const P = (i) => ({ x: pts[i].x * w, y: pts[i].y * h });
   const ok = (i) => (pts[i]?.visibility ?? 1) >= 0.35;
-  const shW = Math.max(20, Math.hypot(P(11).x - P(12).x, P(11).y - P(12).y));
-  const lw = style === 'other' ? Math.max(1.5 * px, shW * 0.03) : Math.max(3 * px, shW * 0.05);
-  const path = () => {
+  const P = (i) => ({ x: pts[i].x * w, y: pts[i].y * h });
+  const shW = Math.max(20 * px, Math.hypot(P(11).x - P(12).x, P(11).y - P(12).y));
+  const feet = [27, 28, 29, 30, 31, 32].filter(ok).map(P);
+  let ring = null;
+  if (feet.length >= 2) {
+    // Round both feet: side-on, the back foot sits higher in the picture than the front one.
+    const xs = feet.map((f) => f.x), ys = feet.map((f) => f.y);
+    const rx = Math.max(shW * 0.9, (Math.max(...xs) - Math.min(...xs)) / 2 + shW * 0.45);
+    const ry = Math.max(rx * 0.22, (Math.max(...ys) - Math.min(...ys)) / 2 + shW * 0.15);
+    ring = { x: (Math.min(...xs) + Math.max(...xs)) / 2, y: (Math.min(...ys) + Math.max(...ys)) / 2 + shW * 0.05, rx, ry };
+  } else if (ok(23) && ok(24)) {
+    // Feet out of shot: put it where the feet would be, about a torso and a half below the hips.
+    const hip = { x: (P(23).x + P(24).x) / 2, y: (P(23).y + P(24).y) / 2 };
+    const torso = ok(11) && ok(12) ? hip.y - (P(11).y + P(12).y) / 2 : shW;
+    if (hip.y + torso * 1.6 < h) ring = { x: hip.x, y: hip.y + torso * 1.6, rx: shW * 0.9, ry: shW * 0.2 };
+  }
+  if (ring && style === 'me') {
+    const last = rings.get(g.canvas);
+    if (last && Math.abs(last.x - ring.x) < shW * 2) ring = { x: last.x * 0.5 + ring.x * 0.5, y: last.y * 0.5 + ring.y * 0.5, rx: last.rx * 0.6 + ring.rx * 0.4, ry: last.ry * 0.6 + ring.ry * 0.4 };
+    rings.set(g.canvas, ring);
+  }
+  if (ring) {
+    const ry = Math.max(4 * px, ring.ry);
+    g.save();
     g.beginPath();
-    for (const [a, b] of BONES) {
-      if (!ok(a) || !ok(b)) continue;
-      g.moveTo(P(a).x, P(a).y);
-      g.lineTo(P(b).x, P(b).y);
+    g.ellipse(ring.x, ring.y, ring.rx, ry, 0, 0, Math.PI * 2);
+    if (style === 'me') {
+      g.fillStyle = 'rgba(255,70,85,0.22)';
+      g.fill();
+      g.shadowColor = 'rgba(255,70,85,0.8)';
+      g.shadowBlur = 6 * px;
+      g.strokeStyle = '#ff4655';
+    } else {
+      g.setLineDash([6 * px, 5 * px]);
+      g.strokeStyle = 'rgba(255,255,255,0.9)';
     }
-  };
-  g.save();
-  g.lineCap = 'round';
-  g.lineJoin = 'round';
-  if (style === 'pick') g.setLineDash([lw * 3, lw * 2.5]);
-  if (style !== 'other') { // dark edge first, so white lines show on a bright background too
-    path();
-    g.lineWidth = lw * 2.2;
-    g.strokeStyle = 'rgba(0,0,0,0.35)';
+    g.lineWidth = 3 * px;
     g.stroke();
+    g.restore();
   }
-  path();
-  g.lineWidth = lw;
-  g.strokeStyle = style === 'other' ? 'rgba(255,255,255,0.35)' : 'rgba(255,255,255,0.92)';
-  g.stroke();
-  // Head: a ring between the ears.
-  const head = ok(0) ? P(0) : null;
-  const r = ok(7) && ok(8) ? Math.max(9 * px, Math.hypot(P(7).x - P(8).x, P(7).y - P(8).y) * 0.75) : Math.max(9 * px, shW * 0.28);
-  if (head) {
-    g.beginPath();
-    g.arc(head.x, head.y, r, 0, Math.PI * 2);
-    if (style !== 'other') { g.lineWidth = lw * 2.2; g.strokeStyle = 'rgba(0,0,0,0.35)'; g.stroke(); }
-    g.lineWidth = lw;
-    g.strokeStyle = style === 'other' ? 'rgba(255,255,255,0.35)' : 'rgba(255,255,255,0.92)';
-    g.stroke();
-  }
-  g.restore();
   if (style === 'me') drawGloves(g, pts, w, h, { px });
-  if (label && head) {
+  if (label && ok(0)) {
+    const head = P(0);
+    const r = ok(7) && ok(8) ? Math.max(9 * px, Math.hypot(P(7).x - P(8).x, P(7).y - P(8).y) * 0.75) : Math.max(9 * px, shW * 0.28);
     g.save();
     const fs = Math.round(Math.max(12 * px, shW * 0.3));
     g.font = `700 ${fs}px system-ui, -apple-system, sans-serif`;
