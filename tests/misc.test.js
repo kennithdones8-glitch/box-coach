@@ -195,3 +195,74 @@ test('simple mode: on for new installs, off for anyone already using the app', a
   mem.set('boxcoach.v1', JSON.stringify({ sessions: [], settings: { voiceV2: true, simple: true } }));
   assert.equal(store.load(st).settings.simple, true);
 });
+
+test('a save that cannot be read is kept aside, not overwritten', async () => {
+  const store = await import('../web/js/store.js');
+  const mem = new Map([['boxcoach.v1', '{"sessions":[{"date":"2026-01-01"}']]); // cut short
+  const storage = { getItem: (k) => mem.get(k) ?? null, setItem: (k, v) => mem.set(k, v) };
+  const st = store.load(storage);
+  assert.equal(st.sessions.length, 0);
+  assert.equal(store.loadProblem, 'rescued');
+  assert.equal(mem.get(store.RESCUE), '{"sessions":[{"date":"2026-01-01"}');
+  store.save(st, storage); // the next save no longer loses the original
+  assert.ok(mem.get(store.RESCUE).startsWith('{"sessions":[{"date"'));
+  // A readable save: no problem reported.
+  store.load({ getItem: () => '{"sessions":[]}' });
+  assert.equal(store.loadProblem, null);
+});
+
+test('backups are checked in full before anything is replaced', async () => {
+  const { importJSON, checkBackup } = await import('../web/js/store.js');
+  for (const bad of ['not json', '[]', '{"sessions":{}}', '{"sessions":[null]}', '{"sessions":[{"date":"garbage"}]}',
+    '{"sessions":[],"weights":"x"}', '{"sessions":[],"combos":[null]}', '{"sessions":[],"profile":[]}']) {
+    assert.throws(() => importJSON(bad), /backup|not/i, bad);
+  }
+  assert.match(checkBackup({ sessions: [{ date: '2026-01-01' }, 7] }).join(' '), /Session 2/);
+  const ok = importJSON(JSON.stringify({ sessions: [{ date: '2026-01-01T10:00:00Z', type: 'shadow' }], weights: [] }));
+  assert.equal(ok.sessions.length, 1);
+});
+
+test('a full phone: older diagnostics are slimmed and the save retried, sessions kept', async () => {
+  const { save } = await import('../web/js/store.js');
+  const big = { punches: Array(2000).fill([1, 2, 3]), vec: Array(500).fill([1, 2]) };
+  const state = { sessions: Array.from({ length: 6 }, (_, i) => ({ date: `2026-01-0${i + 1}`, calib: structuredClone(big) })) };
+  let stored = null;
+  const storage = { setItem: (k, v) => { if (v.length > 60000) throw new Error('QuotaExceededError'); stored = v; } };
+  assert.equal(save(state, storage), true);
+  assert.equal(JSON.parse(stored).sessions.length, 6);
+  const tiny = { setItem: () => { throw new Error('QuotaExceededError'); } };
+  assert.equal(save(state, tiny), false);
+});
+
+test('every file the offline install asks for exists, and every recorded clip the voice uses', async () => {
+  const fs = await import('node:fs');
+  const web = (f) => new URL(`../web/${f}`, import.meta.url);
+  const sw = fs.readFileSync(web('sw.js'), 'utf8');
+  const list = (name) => JSON.parse(sw.match(new RegExp(`const ${name} = (\\[[\\s\\S]*?\\]);`))[1].replace(/'/g, '"').replace(/,\s*\]/, ']'));
+  const files = [...list('SHELL'), ...list('OPTIONAL')].filter((f) => f !== './');
+  assert.ok(files.length > 50);
+  for (const f of files) assert.ok(fs.existsSync(web(f)), `${f} is listed in sw.js but missing`);
+  const icons = JSON.parse(fs.readFileSync(web('manifest.webmanifest'), 'utf8')).icons.map((i) => i.src);
+  for (const f of icons) assert.ok(fs.existsSync(web(f)), `icon ${f} missing`);
+  const clips = Object.values(JSON.parse(fs.readFileSync(web('voice/manifest.json'), 'utf8')));
+  assert.ok(clips.length > 100);
+  for (const f of clips) assert.ok(fs.existsSync(web(f)), `voice clip ${f} missing`);
+});
+
+test('the first screen preloads exactly the modules it imports (no lazy screens, nothing found late)', async () => {
+  const fs = await import('node:fs');
+  const path = await import('node:path');
+  const root = new URL('../web/', import.meta.url).pathname;
+  const seen = new Set();
+  const walk = (f) => {
+    if (seen.has(f)) return;
+    seen.add(f);
+    const src = fs.readFileSync(path.join(root, f), 'utf8');
+    for (const m of src.matchAll(/^\s*import\s[^'"]*?from\s+['"](\.[^'"]+)['"]/gm)) walk(path.normalize(path.join(path.dirname(f), m[1])));
+  };
+  walk('js/app.js');
+  const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
+  const pre = new Set([...html.matchAll(/rel="modulepreload" href="([^"]+)"/g)].map((m) => m[1]));
+  assert.deepEqual([...seen].filter((f) => !pre.has(f)), [], 'imported at startup but not preloaded');
+  assert.deepEqual([...pre].filter((f) => !seen.has(f)), [], 'preloaded but not needed at startup');
+});

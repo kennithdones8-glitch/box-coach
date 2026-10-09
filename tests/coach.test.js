@@ -153,3 +153,19 @@ test('pad work and drilled combos do not produce punch-mix habits', async () => 
   assert.ok(!detectPatterns({ type: 'mitts', punches: { byType: by } }).includes('lightJab'));
   assert.ok(!detectPatterns({ type: 'shadow', calib: { labels: '12..' }, punches: { byType: by } }).includes('lightJab'));
 });
+
+test('records only come from well-measured sessions (a sparring clip reading the partner is not a record)', async () => {
+  const { updateMemory, emptyMemory, punchCountOk, trackingOk } = await import('../web/js/coach.js');
+  // The real report: 28 s of sparring, 43 "punches" (about 12 thrown), 75% of frames with two people.
+  const spar = { date: '2026-10-07T23:51:51Z', type: 'sparring', source: 'video', workSec: 28, completedRounds: 1, punches: { total: 43 }, calib: { frames: 389, tracked: 389, seen: [418, 0, 29], multi: 75 } };
+  assert.equal(trackingOk(spar), true);
+  assert.equal(punchCountOk(spar), false);
+  const { memory } = updateMemory(emptyMemory(), spar, {});
+  assert.equal(memory.prs.bestPpm, undefined);
+  assert.equal(memory.prs.mostPunches, undefined);
+  assert.equal(memory.prs.mostRounds.value, 1, 'rounds are still a record');
+  const solo = { ...spar, type: 'shadow', calib: { frames: 400, tracked: 390 } };
+  assert.equal(updateMemory(emptyMemory(), solo, {}).memory.prs.bestPpm.value, 92);
+  const lost = { ...solo, calib: { frames: 400, tracked: 150 } };
+  assert.equal(updateMemory(emptyMemory(), lost, {}).memory.prs.bestPpm, undefined);
+});

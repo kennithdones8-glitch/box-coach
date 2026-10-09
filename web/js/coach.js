@@ -75,6 +75,19 @@ export function outputPpm(session) {
   return Math.round(session.punches.total / workMin);
 }
 
+// Whether a session's camera numbers can be trusted: the body was found in most frames, and
+// (video) the boxer wasn't lost or hidden for much of it.
+export function trackingOk(s) {
+  const c = s?.calib;
+  if (!c) return true;
+  if (c.frames && c.tracked != null && c.tracked / c.frames < 0.7) return false;
+  if (Array.isArray(c.seen) && c.seen[0] && ((c.seen[1] || 0) + (c.seen[2] || 0)) / c.seen[0] > 0.3) return false;
+  return true;
+}
+// Punch counts also need the boxer alone in shot: with a partner in frame (pads, sparring) some
+// of the partner's movement can still be read as punches.
+export const punchCountOk = (s) => trackingOk(s) && !(s?.calib?.multi >= 20);
+
 export function returnScore(ms) {
   if (ms == null) return null;
   // <=350ms is excellent, >=1100ms is poor.
@@ -233,13 +246,16 @@ export function updateMemory(prev, session, profile = {}) {
   }
 
   // Personal records.
-  const ppm = outputPpm(session);
+  // Records only from numbers that were measured well (a sparring clip that counted the
+  // partner's punches is not a record).
+  const counted = punchCountOk(session), seen = trackingOk(session);
+  const ppm = counted ? outputPpm(session) : null;
   const checks = [
-    ['mostPunches', session.punches?.total, 'Most punches in a session'],
+    ['mostPunches', counted ? session.punches?.total : null, 'Most punches in a session'],
     ['bestPpm', ppm, 'Best punches per minute'],
-    ['bestForm', scores.overall, 'Best overall score'],
+    ['bestForm', seen ? scores.overall : null, 'Best overall score'],
     ['mostRounds', session.completedRounds, 'Most rounds completed'],
-    ['fastestHands', session.form?.speed, 'Fastest hand speed'],
+    ['fastestHands', seen ? session.form?.speed : null, 'Fastest hand speed'],
   ];
   for (const [key, val, label] of checks) {
     if (val == null || val <= 0) continue;
