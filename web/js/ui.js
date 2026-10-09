@@ -37,6 +37,17 @@ let simple = false;
 export const setSimple = (on) => { simple = !!on; document.body.classList.toggle('simple', simple); };
 export const isSimple = () => simple;
 
+// Look: 'dark' (default), 'light', or 'auto' (follow the phone).
+let themePref = 'dark';
+const lightQuery = globalThis.matchMedia?.('(prefers-color-scheme: light)');
+export function applyTheme(pref = themePref) {
+  themePref = pref || 'dark';
+  const light = themePref === 'light' || (themePref === 'auto' && !!lightQuery?.matches);
+  document.documentElement.dataset.theme = light ? 'light' : 'dark';
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', light ? '#f2f3f5' : '#0a0b0d');
+}
+lightQuery?.addEventListener?.('change', () => applyTheme());
+
 export function subnav(tab, all, current) {
   const items = simple ? all.filter(([k]) => k === current || !ADVANCED[tab]?.includes(k)) : all;
   return `<nav class="subnav" style="--n:${items.length}">${items.map(([k, label]) => `<a href="#${tab}/${k}" class="${k === current ? 'on' : ''}" ${k === current ? 'aria-current="page"' : ''}>${esc(label)}</a>`).join('')}</nav>`;

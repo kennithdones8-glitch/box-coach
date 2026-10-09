@@ -16,7 +16,7 @@ import { buildContext, trainToday, aiObservations, generateRounds, rankProblems,
 import { stepHypothesis } from './hypotheses.js';
 import { recoveryStatus, readinessOf, baselineHr } from './recovery.js';
 import { fatigueMap } from './analysis.js';
-import { $, $$, esc, fmtDate, shortDate, toast, scoreClass, scoreChip, subnav, subOf, pageHead, PROGRESS_SUBS, setSimple, isSimple } from './ui.js';
+import { $, $$, esc, fmtDate, shortDate, toast, scoreClass, scoreChip, subnav, subOf, pageHead, PROGRESS_SUBS, setSimple, isSimple, applyTheme } from './ui.js';
 import { reviewFieldsHTML, bindReview, readReview } from './views/review.js';
 import { buildReport, reportSize } from './report.js';
 import { safetyNotes, isStandalone, isIOS, askPersist } from './safety.js';
@@ -37,11 +37,13 @@ import { CoachVoice } from './coachvoice.js';
 import { allWorkouts } from './workouts.js';
 import { cardData, shareCard } from './sharecard.js';
 import { line as voiceLine, hasLine } from './voice.js';
+import { recentForm, sparkline } from './trends.js';
 import { renderCombos, comboHTML } from './views/combos.js';
 import { parseCombo, comboText, comboLabel, comboSpeech, comboKey, punchDigits, pickCombo, judgeCalls, sessionCombos } from './combos.js';
 
 let state = store.load();
 const view = $('#view');
+applyTheme(state.settings.theme);
 // Saved data that couldn't be read is kept aside (store.RESCUE), never silently replaced.
 if (store.loadProblem) setTimeout(() => toast(store.loadProblem === 'rescued' ? 'Your saved data could not be read. A copy was kept: Settings → Your data.' : 'Your saved data could not be read.'), 800);
 
@@ -53,7 +55,7 @@ function persist() {
   if (!store.save(state)) toast('Could not save — storage is full or blocked.');
 }
 
-export const APP_VERSION = '2026.10.09-6';
+export const APP_VERSION = '2026.10.09-7';
 
 const app = {
   version: APP_VERSION,
@@ -145,6 +147,12 @@ function route() {
   routeTok++;
   const tab = { plan: 'home', coachme: 'home', log: 'progress', boxer: 'progress' }[name] || name;
   $$('.tabs a').forEach((a) => a.classList.toggle('active', a.dataset.tab === tab));
+  // Screens slide in when you move between them (not when one redraws in place).
+  view.classList.remove('enter');
+  void view.offsetWidth;
+  view.classList.add('enter');
+  clearTimeout(route.enterT);
+  route.enterT = setTimeout(() => view.classList.remove('enter'), 450);
   fn();
   renderStreak();
   window.scrollTo(0, 0);
@@ -227,7 +235,7 @@ function renderHome() {
 
   view.innerHTML = `
     ${pageHead('Today', { eyebrow: esc(dateLine) })}
-    ${fresh ? '' : `<a class="coachme-btn" href="#coachme"><b>🥊 Coach me</b><span>Today: ${esc(day.objective)}</span></a>
+    ${fresh ? '' : `<a class="coachme-btn" href="#coachme"><span class="eyebrow">Next session · Coach me</span><b>${esc(day.objective)}</b><span class="go">Start session →</span></a>
     ${recapHTML()}`}
 
     ${!sessions.length && !profile.onboarded ? onboardHTML() : needsCameraSetup() ? setupHTML() : !sessions.length ? `
@@ -241,6 +249,18 @@ function renderHome() {
       </section>` : ''}
 
     ${fresh ? '' : `
+    <section class="card">
+      <div class="card-head"><h2>This week</h2><span class="muted small">${wk.days} of ${profile.weeklyGoal} training days</span></div>
+      <div class="stats4">
+        <div><b>${wk.sessions}</b><span>sessions</span></div>
+        <div><b>${wk.minutes}</b><span>minutes</span></div>
+        <div><b>${wk.punches.toLocaleString()}</b><span>punches</span></div>
+        <div><b>${ws ? ws.avg7 : '–'}</b><span>${esc(profile.unit)} avg</span></div>
+      </div>
+      <div class="bar" role="progressbar" aria-label="Training days this week" aria-valuemin="0" aria-valuemax="${profile.weeklyGoal}" aria-valuenow="${wk.days}"><div style="width:${Math.min(100, (wk.days / profile.weeklyGoal) * 100)}%"></div></div>
+    </section>
+    ${formHTML()}
+
     <section class="card">
       ${checkin ? `
         <div class="ready-row">
@@ -263,18 +283,7 @@ function renderHome() {
       <h2>Coach notes</h2>
       <ul class="rows notes-list">${notes.slice(0, 2).map(([ico, title, sub, href]) => `
         <li><span class="row-ico">${ico}</span><a class="row-main" href="${href}" style="color:inherit;font-weight:400"><b>${esc(title)}</b><span>${esc(sub)}</span></a><span class="chev">›</span></li>`).join('')}</ul>
-    </section>` : ''}
-
-    <section class="card">
-      <div class="card-head"><h2>This week</h2><span class="muted small">${wk.days} of ${profile.weeklyGoal} days</span></div>
-      <div class="stats4">
-        <div><b>${wk.sessions}</b><span>sessions</span></div>
-        <div><b>${wk.minutes}</b><span>minutes</span></div>
-        <div><b>${wk.punches.toLocaleString()}</b><span>punches</span></div>
-        <div><b>${ws ? ws.avg7 : '–'}</b><span>${esc(profile.unit)} avg</span></div>
-      </div>
-      <div class="bar"><div style="width:${Math.min(100, (wk.days / profile.weeklyGoal) * 100)}%"></div></div>
-    </section>`}`;
+    </section>` : ''}`}`;
 
   $('#openCheckin')?.addEventListener('click', () => { showCheckin = true; renderHome(); });
   $('#hideCheckin')?.addEventListener('click', () => { showCheckin = false; renderHome(); });
@@ -306,6 +315,24 @@ function renderHome() {
     toast('Set up. Now the camera.');
     renderHome();
   });
+}
+
+// Recent form: the latest well-measured numbers against your usual, with a small trend line.
+function formHTML() {
+  const rows = recentForm(state.sessions);
+  if (!rows.some((r) => r.n)) return '';
+  const word = { up: 'better', down: 'worse', flat: 'steady' };
+  return `<section class="card form-now">
+    <div class="card-head"><h2>Recent form</h2><a href="#progress/charts">Charts →</a></div>
+    <div class="form-grid">${rows.map((r) => `
+      <div class="fm">
+        <span class="fm-l">${esc(r.name)}</span>
+        <b class="num">${r.last ?? '–'}<small>${r.last != null ? esc(r.unit) : ''}</small></b>
+        ${r.trend ? `<span class="fm-d ${r.trend}">${r.trend === 'flat' ? '≈' : r.delta > 0 ? '▲' : '▼'} ${r.trend === 'flat' ? 'usual' : `${Math.abs(r.delta)}${esc(r.unit)} ${word[r.trend]}`}</span>` : `<span class="fm-d">${r.n ? 'need 2+ sessions' : 'no camera data'}</span>`}
+        ${sparkline(r.series)}
+      </div>`).join('')}</div>
+    <p class="small muted" style="margin:8px 0 0">Your latest well-tracked session against the ones before it. Punch rate compares ${esc(rows[1].type ? (ALL_TYPES[rows[1].type] || rows[1].type).toLowerCase() : 'like')} sessions only.</p>
+  </section>`;
 }
 
 // Monday to Wednesday: last week in one card (how much, what got better, what to work on).
@@ -754,6 +781,12 @@ function onPhase(phase, round) {
   const quiet = t.catchingUp;
   $('#livePhase').textContent = { prep: 'PREP', work: 'FIGHT', rest: 'REST', done: 'DONE' }[phase];
   $('#live').dataset.phase = phase;
+  // A short, one-off cue that the phase changed (CSS; nothing runs continuously, and it's off
+  // with reduced motion).
+  const top = $('#live .live-top');
+  top.classList.remove('phase-in');
+  void top.offsetWidth;
+  if (!quiet) top.classList.add('phase-in');
   $('#liveRound').textContent = phase === 'prep' ? 'Get ready' : `Round ${round} / ${t.rounds}`;
   // Full speed only while you're working; between rounds a few frames a second is enough
   // for the setup check, and saves battery and heat.
@@ -1239,7 +1272,7 @@ function renderSummary(session) {
   const fb = feedback(session, state.sessions, preview, state.profile);
   $$('.tabs a').forEach((a) => a.classList.remove('active'));
   view.innerHTML = `
-    <section class="card">
+    <section class="card complete">
       <div class="eyebrow">Session complete · ${fmt(session.workSec)} of work</div>
       <h1>${esc(sessionName(session))}</h1>
       ${events.newPRs.length ? `<div class="pr">🏆 New personal record: ${events.newPRs.map(esc).join(', ')}</div>` : ''}

@@ -649,10 +649,15 @@ function renderReview(el, app) {
     <section class="card">
       <h2>Video review</h2>
       <video id="vidPreview" src="${j.url}" controls playsinline muted class="vid-preview"></video>
+      <div class="vid-quality">
+        <div class="${j.tracked >= 85 ? 'good' : j.tracked >= 70 ? 'warn' : 'bad'}"><b>${j.tracked}%</b><span>Body tracked</span></div>
+        <div><b>${punches.length}</b><span>Punches${others.some((e) => e.kind === 'feint') ? ` · ${others.filter((e) => e.kind === 'feint').length} feints` : ''}</span></div>
+        <div class="${avgConf == null ? '' : avgConf >= 75 ? 'good' : avgConf >= 60 ? 'warn' : 'bad'}"><b>${avgConf ?? '–'}${avgConf != null ? '%' : ''}</b><span>Avg confidence</span></div>
+      </div>
+      ${j.tracked < 70 || j.multi >= 20 ? `<div class="msg behind" style="margin:0 0 10px"><b>Treat these numbers as estimates.</b> ${j.tracked < 70 ? `The camera found you in only ${j.tracked}% of frames. ` : ''}${j.multi >= 20 ? `Someone else was in ${j.multi}% of frames, so some of their movement can read as yours. ` : ''}Check the detections below.</div>` : ''}
       <ul class="small">
-        <li>Body found in ${j.tracked}% of ${j.frames ?? ''} frames analysed${j.tracked < 70 ? ' — low; results are less reliable' : ''}${j.multi ? ` · ${j.multi}% had 2 people (following the person you tapped)` : ''}</li>
+        <li>${j.frames ?? ''} frames analysed${j.multi ? ` · ${j.multi}% had 2 people (following the person you tapped)` : ''}</li>
         <li>Stance detected: ${esc(stanceTxt)}</li>
-        <li>${punches.length} punches detected, average confidence ${avgConf ?? '–'}%</li>
         ${j.comboCheck ? comboCheckHTML(j.comboCheck) : ''}
         ${j.ai ? `<li id="aiStatus">${aiStatusHTML(j.ai)}</li>` : ''}
         <li>${others.filter((e) => e.kind === 'feint').length} feints${others.some((e) => e.kind === 'feint') ? ` · ${punches.filter((e) => e.afterFeint).length} led straight into a punch` : ''}</li>
