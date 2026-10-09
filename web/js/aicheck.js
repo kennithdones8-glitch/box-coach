@@ -49,6 +49,18 @@ export function cropBox(pts, W, H) {
   return { cx: sh.x, cy: (top + bottom) / 2, h };
 }
 
+// Which photos to save for a chat: a long video makes far more than a chat takes (6 minutes is
+// ~180), so keep the ones with the most punches and feints in them, in time order, then fill
+// any spare places evenly. Returns indexes into sheets.
+export const CHAT_PHOTOS = 20;
+export function chatSheets(sheets, events = [], max = CHAT_PHOTOS) {
+  if (sheets.length <= max) return sheets.map((_, i) => i);
+  const busy = sheets.map((sh, i) => ({ i, n: events.filter((e) => (e.kind === 'punch' || e.kind === 'feint') && e.t >= sh.t0 && e.t <= sh.t1 + 50).length }));
+  const pick = new Set(busy.filter((b) => b.n).sort((a, b) => b.n - a.n || a.i - b.i).slice(0, max).map((b) => b.i));
+  for (let k = 0; pick.size < max && k < max; k++) pick.add(Math.round((k * (sheets.length - 1)) / (max - 1)));
+  return [...pick].sort((a, b) => a - b);
+}
+
 export class FrameSheets {
   constructor({ gap = 100 } = {}) {
     this.gap = gap; // ms between captured frames

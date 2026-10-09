@@ -333,6 +333,7 @@ function emptyRound() {
     punches: { jab: 0, cross: 0, leadHook: 0, rearHook: 0, leadUppercut: 0, rearUppercut: 0 },
     returnTimes: [], returnLead: [], returnRear: [], leadPunches: 0, rearDrops: 0,
     punchLog: [], leftCloser: 0, depthFrames: 0, speeds: [], defLog: [],
+    feints: 0, feintSetups: 0, feintLog: [],
   };
 }
 
@@ -452,6 +453,10 @@ export function roundMetrics(r) {
     ...comboStats(sequences),
     leftLeadPct: pct(r.leftCloser, r.depthFrames),
     ...(speedStats(r.speeds) || {}),
+    // Feints: hand darts that stop short (see _feint), and how many led straight into a punch.
+    feints: r.feints || 0,
+    feintSetups: r.feintSetups || 0,
+    feintsPerMin: r.t1 > r.t0 ? Math.round(((r.feints || 0) / ((r.t1 - r.t0) / 60000)) * 10) / 10 : null,
   };
 }
 
@@ -476,6 +481,10 @@ export function combineRounds(rounds) {
   out.sequences = {};
   for (const r of rounds) for (const [k, n] of Object.entries(r.sequences || {})) out.sequences[k] = (out.sequences[k] || 0) + n;
   Object.assign(out, comboStats(out.sequences));
+  out.feints = rounds.reduce((a, r) => a + (r.feints || 0), 0);
+  out.feintSetups = rounds.reduce((a, r) => a + (r.feintSetups || 0), 0);
+  const mins = rounds.reduce((a, r) => a + (r.feintsPerMin ? (r.feints || 0) / r.feintsPerMin : 0), 0);
+  out.feintsPerMin = mins ? Math.round((out.feints / mins) * 10) / 10 : out.feints ? null : 0;
   // Hand speed over the session, and how much it fell from the first round to the last.
   const sp = rounds.filter((r) => r.speed != null);
   if (sp.length) {
@@ -648,7 +657,7 @@ export class FormAnalyzer {
     this.learnedAxis = null;
     this.roundNo = 0;
     // Raw measurements behind each punch decision, for tuning thresholds to a real boxer.
-    this.calib = { vTh: Math.round(this.vTh * 100) / 100, punches: [], pt: [], pe: [], rejected: [], nearMiss: [], motion: [], track: [], frames: 0, tracked: 0 };
+    this.calib = { vTh: Math.round(this.vTh * 100) / 100, punches: [], pt: [], pe: [], rejected: [], nearMiss: [], feints: [], motion: [], track: [], frames: 0, tracked: 0 };
   }
 
   _hand(side) {
@@ -1028,7 +1037,7 @@ export class FormAnalyzer {
         // the guard moving, not a punch: none of 120 labelled punches reached less than 0.54.
         const real = h.peakExt >= 0.5 && (h.peakSpeed < 6.5 || fastStraight) && (travel > 0.1 || h.peakExt > 0.85 || (h.peakSpeed > 2 && h.peakExt > 0.65));
         if (real) this._queuePunch(role, h, t);
-        else this._calibPush('rejected', [role === 'lead' ? 'L' : 'R', r2(h.peakSpeed), r2(h.peakExt), Math.round(h.peakAngle), r2(travel)]);
+        else if (!this._feint(role, h, t, nose)) this._calibPush('rejected', [role === 'lead' ? 'L' : 'R', r2(h.peakSpeed), r2(h.peakExt), Math.round(h.peakAngle), r2(travel)]);
       }
     }
     // Hand return: back in guard near the face.
@@ -1051,6 +1060,24 @@ export class FormAnalyzer {
   // Forward axis: learned from recent punches once there are enough, else the face direction.
   axis() {
     return this.learnedAxis || this.face || { x: 0, z: -1 };
+  }
+
+  // A feint: the fist darts from the guard towards the target, fast like a punch, but stops well
+  // short and comes straight back, without dropping or lifting (that's the guard moving). Returns
+  // true when counted. Not counted while tracking is unsure or on the partner's glove (sparring).
+  _feint(role, h, t, nose) {
+    const { fwd, lat: side } = travel(h.path, this.axis()); // metres towards the target / across
+    const fromGuard = dist3(h.start, nose) < 0.4;
+    const quick = t - h.startT <= 450 && h.endWhy === 'r';
+    const level = h.minRise > -0.08 && h.maxRise < 0.1;
+    if (!(fromGuard && quick && level && fwd >= 0.06 && fwd >= side && h.peakExt < 0.8)) return false;
+    if (this._doubtful(role, h.startT, h.peakT ?? t)) return false;
+    if (!this.active) return true;
+    this.round.feints++;
+    this.round.feintLog.push(t);
+    this.event('feint', t, Math.round(60 * this._vis([h.sh, h.el, h.wr]) + 20), { role, fwd: r2(fwd) });
+    this._calibPush('feints', [role === 'lead' ? 'L' : 'R', r2(h.peakSpeed), r2(h.peakExt), r2(fwd), Math.round(t / 100)]);
+    return true;
   }
 
   // Hold a punch briefly: if the other hand reached full stretch at the same moment, only the
@@ -1137,12 +1164,16 @@ export class FormAnalyzer {
     const conf = PUNCH_CONF(vis, h.peakSpeed, this.vTh, margin);
     const type = PUNCH_TYPE[kind][role];
     if (!this.active) return;
+    // A feint in the 0.8 s before: the feint set this punch up.
+    const start = t - (h.dur || 0);
+    const setUp = this.round.feintLog.some((ft) => ft < start && start - ft <= 800);
+    if (setUp) { this.round.feintSetups++; this.round.feintLog = this.round.feintLog.filter((ft) => start - ft > 800); }
     this.round.punches[type]++;
     this.round.punchLog.push({ t, type });
     this.round.speeds.push(h.peakSpeed);
     const r3 = (x) => Math.round(x * 1000) / 1000;
     this.event('punch', t, conf, {
-      type, role, vis, speed: h.peakSpeed, fwd, lat, baseKind: base.kind, setup: this.sig ? { ...this.sig } : null,
+      type, role, vis, speed: h.peakSpeed, fwd, lat, baseKind: base.kind, afterFeint: setUp || undefined, setup: this.sig ? { ...this.sig } : null,
       f: { angle: h.peakAngle, ext: h.peakExt, rise: h.maxRise, path: h.path.map(([a, b]) => [r3(a), r3(b)]), disp: h.peakDisp.map(r3) },
       i2: h.i2 ? { ext: r3(h.i2.ext), angle: Math.round(h.i2.maxAngle), fore: r3(h.i2.fore), elbUp: r3(h.i2.elbUp), dx: r3(h.i2.dx), dy: r3(h.i2.dy), vis: r3(h.i2.vis) } : null,
       face: face ? face.map(r3) : null,

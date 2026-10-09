@@ -781,3 +781,46 @@ test("sparring: the partner's glove on yours, or a moment of lost tracking, is n
   assert.ok(onTheirGlove(me, [partner(me[LM.L_WR], true)]).has(LM.L_WR));
   assert.equal(onTheirGlove(me, [partner(me[LM.L_WR], false)]).size, 0);
 });
+
+test('feints: a sharp half-jab that stops short and snaps back is a feint, not a punch', () => {
+  const T = { x: 0.16, y: -0.49, z: -0.61 }, TE = { x: 0.17, y: -0.47, z: -0.33 };
+  // The lead fist darts a fraction of the way to a jab and comes straight back.
+  const dart = (frac, out = 2, back = 3) => {
+    const base = pose();
+    const tgt = lerp(base[LM.L_WR], T, frac), tgtE = lerp(base[LM.L_EL], TE, frac);
+    return punch(LM.L_WR, LM.L_EL, tgt, tgtE, out, back);
+  };
+  const run = (seq) => {
+    const an = new FormAnalyzer();
+    an.startRound();
+    feed(an, seq, 0);
+    return an.endRound();
+  };
+  const jab = () => punch(LM.L_WR, LM.L_EL, T, TE);
+  // Six feints: counted as feints, never as punches.
+  let seq = [...still(15)];
+  for (let i = 0; i < 6; i++) seq.push(...dart(0.4), ...still(20));
+  const f = run(seq);
+  assert.equal(f.totalPunches, 0, 'a feint is not a punch');
+  assert.ok(f.feints >= 5, `feints read: ${f.feints}`);
+  // Real jabs: punches, not feints.
+  seq = [...still(15)];
+  for (let i = 0; i < 6; i++) seq.push(...jab(), ...still(20));
+  const j = run(seq);
+  assert.ok(j.totalPunches >= 5);
+  assert.equal(j.feints, 0, 'a jab is not a feint');
+  // Feint, then the jab straight after: the feint set the punch up.
+  seq = [...still(15)];
+  for (let i = 0; i < 5; i++) seq.push(...dart(0.4), ...still(6), ...jab(), ...still(25));
+  const fj = run(seq);
+  assert.ok(fj.feintSetups >= 4, `feint-then-jab: ${fj.feintSetups} of ${fj.feints}`);
+  // Slow guard adjustments, or the fist dropping, are neither.
+  seq = [...still(15)];
+  const base = pose();
+  for (let i = 0; i < 6; i++) {
+    seq.push(...punch(LM.L_WR, LM.L_EL, lerp(base[LM.L_WR], T, 0.4), lerp(base[LM.L_EL], TE, 0.4), 12, 12), ...still(15)); // slow
+    seq.push(...punch(LM.L_WR, LM.L_EL, { x: 0.12, y: -0.25, z: -0.3 }, base[LM.L_EL], 2, 3), ...still(15)); // drop
+  }
+  const g = run(seq);
+  assert.equal(g.feints, 0, 'guard moving is not a feint');
+});

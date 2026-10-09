@@ -9,7 +9,7 @@ const taughtStats = (p) => { const m = personalFor(p); return m ? [m.n, Math.rou
 
 const r = (x) => (x == null ? null : Math.round(x * 10) / 10);
 const FORM_KEYS = ['guard', 'stance', 'blade', 'footwork', 'head', 'handReturnMs', 'leadReturnMs', 'rearReturnMs',
-  'rearDropPct', 'crossedPct', 'narrowPct', 'widePct', 'comboShare', 'avgComboLen', 'leftLeadPct', 'sidePct', 'headPerMin'];
+  'rearDropPct', 'crossedPct', 'narrowPct', 'widePct', 'comboShare', 'avgComboLen', 'leftLeadPct', 'sidePct', 'headPerMin', 'feints', 'feintSetups', 'feintsPerMin'];
 const ROUND_KEYS = ['guard', 'stance', 'blade', 'footwork', 'head', 'leadReturnMs', 'rearReturnMs', 'rearDropPct', 'totalPunches'];
 
 export function buildReport(session, state = {}, version = null) {
