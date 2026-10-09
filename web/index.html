@@ -62,6 +62,7 @@
   <link rel="modulepreload" href="js/sharecard.js">
   <link rel="modulepreload" href="js/voice.js">
   <link rel="modulepreload" href="js/trends.js">
+  <link rel="modulepreload" href="js/punchstats.js">
   <link rel="preload" href="fonts/barlow-condensed-700.woff2" as="font" type="font/woff2" crossorigin>
 </head>
 <body>
@@ -89,7 +90,8 @@
       <div id="liveRound" class="live-round">Get ready</div>
       <div id="livePhase" class="phase-pill">PREP</div>
     </div>
-    <div id="liveClock" class="clock">0:10</div>
+    <div id="liveClock" class="clock" role="timer" aria-label="Time left">0:10</div>
+    <div id="liveBanner" class="live-banner" aria-hidden="true"></div>
     <div class="round-bar" aria-hidden="true"><div id="liveBar"></div></div>
     <div class="cam" id="camBox" hidden>
       <video id="camVideo" playsinline muted></video>

@@ -651,6 +651,93 @@ function renderLabel(el, app) {
   $('#lblDone', el).addEventListener('click', () => go(ps.length));
 }
 
+// Reviewing detections without reloading the video: tap a marker or a row to play that moment
+// (in slow motion) and fix it in place with one tap.
+function bindDetections(el, j, { label, chip }) {
+  const v = $('#vidPreview', el);
+  const list = $('#evList', el);
+  const editor = document.createElement('div');
+  editor.className = 'ev-edit';
+  let sel = null, stopT = null;
+  const play = (t) => {
+    if (!v) return;
+    clearTimeout(stopT);
+    v.currentTime = Math.max(0, t / 1000 - 0.6);
+    v.playbackRate = 0.5;
+    v.play().catch(() => {});
+    stopT = setTimeout(() => { v.pause(); v.playbackRate = 1; }, 2400);
+  };
+  const refresh = (e) => {
+    const row = list?.querySelector(`[data-row="${e.i}"]`);
+    row?.classList.toggle('off', !e.keep);
+    if (row) { row.querySelector('.ev-name').textContent = label(e); row.querySelector('.pnum').textContent = chip(e); row.querySelector('[data-keep]').checked = e.keep; }
+    el.querySelector(`.tl-m[data-ev="${e.i}"]`)?.classList.toggle('off', !e.keep);
+  };
+  const lead = (e) => e.role === 'lead';
+  const openEditor = (e) => {
+    const types = e.kind === 'punch' ? Object.keys(PUNCH_DIGIT).filter((k) => (lead(e) ? ['jab', 'leadHook', 'leadUppercut'] : ['cross', 'rearHook', 'rearUppercut']).includes(k)) : [];
+    editor.innerHTML = `
+      <div class="ev-btns">${types.map((k) => `<button type="button" class="btn sm ${e.keep && e.fix === k ? 'primary' : 'ghost'}" data-set="${k}"><span class="pnum">${PUNCH_DIGIT[k]}</span>${esc(PUNCH_NAMES[k])}</button>`).join('')}
+        <button type="button" class="btn sm ${e.keep ? 'ghost' : 'primary'}" data-set="none">${e.kind === 'punch' ? 'Not a punch' : 'Remove'}</button>
+        ${e.kind !== 'punch' && !e.keep ? '<button type="button" class="btn sm ghost" data-set="keep">Keep</button>' : ''}
+        <button type="button" class="btn sm ghost" data-replay>↺ Replay</button></div>
+      ${e.kind === 'punch' ? `<p class="small muted" style="margin:6px 0 0">${lead(e) ? 'Lead' : 'Rear'} hand · read as ${esc(PUNCH_NAMES[e.type])} (${e.conf}%)${e.typeUnsure ? ', back to the camera' : ''}.</p>` : ''}`;
+    editor.querySelectorAll('[data-set]').forEach((b) => b.addEventListener('click', () => {
+      const k = b.dataset.set;
+      if (k === 'none') e.keep = false;
+      else if (k === 'keep') e.keep = true;
+      else { e.fix = k; e.keep = true; }
+      e.edited = true;
+      refresh(e);
+      openEditor(e);
+    }));
+    editor.querySelector('[data-replay]').addEventListener('click', () => play(e.t));
+  };
+  const select = (i, { scroll = false } = {}) => {
+    const e = j.events[i];
+    if (!e) return;
+    list?.querySelectorAll('.ev-main[aria-expanded="true"]').forEach((b) => b.setAttribute('aria-expanded', 'false'));
+    el.querySelectorAll('.tl-m.on, #evList li.on').forEach((x) => x.classList.remove('on'));
+    if (sel === i && editor.isConnected) { editor.remove(); sel = null; return; }
+    sel = i;
+    const row = list?.querySelector(`[data-row="${i}"]`);
+    if (row) {
+      row.classList.add('on');
+      row.querySelector('.ev-main').setAttribute('aria-expanded', 'true');
+      row.after(editor);
+      if (scroll) row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+    el.querySelector(`.tl-m[data-ev="${i}"]`)?.classList.add('on');
+    openEditor(e);
+    play(e.t);
+  };
+  el.querySelectorAll('.tl-m').forEach((b) => b.addEventListener('click', () => select(+b.dataset.ev, { scroll: true })));
+  el.querySelectorAll('.ev-main').forEach((b) => b.addEventListener('click', () => select(+b.dataset.ev)));
+  el.querySelectorAll('.fd[data-ev]').forEach((b) => b.addEventListener('click', () => select(+b.dataset.ev, { scroll: true })));
+  el.querySelectorAll('[data-keep]').forEach((c) => c.addEventListener('change', () => {
+    const e = j.events[+c.dataset.keep];
+    e.keep = c.checked;
+    e.edited = true;
+    refresh(e);
+    if (sel === e.i) openEditor(e);
+  }));
+  const setFilter = (f) => {
+    el.dataset.evf = f;
+    list?.classList.toggle('only-review', f === 'review');
+    el.querySelectorAll('input[name=evf]').forEach((r) => { r.checked = r.value === f; });
+  };
+  el.querySelectorAll('input[name=evf]').forEach((r) => r.addEventListener('change', () => setFilter(r.value)));
+  el.querySelector('.fd[data-act="review"]')?.addEventListener('click', () => { setFilter('review'); list?.scrollIntoView({ behavior: 'smooth', block: 'start' }); });
+  // The playhead follows the video; tapping the track jumps there.
+  const ph = $('#tlPh', el);
+  if (v && ph) v.addEventListener('timeupdate', () => { ph.style.left = `${Math.min(100, (100 * v.currentTime * 1000) / (j.durMs || 1))}%`; });
+  $('#tl .tl-track', el)?.addEventListener('click', (ev) => {
+    if (ev.target.closest('.tl-m') || !v) return;
+    const r = ev.currentTarget.getBoundingClientRect();
+    v.currentTime = ((ev.clientX - r.left) / r.width) * (j.durMs / 1000);
+  });
+}
+
 function renderReview(el, app) {
   const j = job;
   if (j.labelAt != null) return renderLabel(el, app);
@@ -661,29 +748,37 @@ function renderReview(el, app) {
   const avgConf = punches.length ? Math.round(punches.reduce((a, e) => a + e.conf, 0) / punches.length) : null;
   const away = combineRounds(j.rounds).awayPct ?? 0;
   const unsure = punches.filter((e) => e.typeUnsure).length;
-  const uncertainOnly = el.dataset.uncertain === '1';
-  const shown = [...punches, ...others].sort((a, b) => a.t - b.t).filter((e) => !uncertainOnly || e.conf < 70);
+  const review = (e) => e.conf < 70 || e.typeUnsure; // what's worth a second look
+  const shown = [...punches, ...others].sort((a, b) => a.t - b.t);
+  const nReview = shown.filter(review).length;
+  const drops = others.filter((e) => e.kind === 'guardDrop');
+  const feints = others.filter((e) => e.kind === 'feint');
+  const pct = (t) => `${Math.max(0, Math.min(100, (100 * t) / (j.durMs || 1))).toFixed(2)}%`;
+  const label = (e) => (e.kind === 'punch' ? PUNCH_NAMES[e.fix] : e.kind === 'guardDrop' ? 'Guard drop' : e.kind === 'feint' ? `Feint (${e.role === 'lead' ? 'lead' : 'rear'} hand)` : 'Crossed feet');
+  const chip = (e) => (e.kind === 'punch' ? PUNCH_DIGIT[e.fix] : e.kind === 'feint' ? 'F' : e.kind === 'guardDrop' ? '▼' : '×');
+  // The few things worth acting on, each with the moment to look at.
+  const findings = [];
+  if (nReview) findings.push({ text: `${nReview} detection${nReview === 1 ? '' : 's'} need${nReview === 1 ? 's' : ''} a look`, sub: 'Low confidence or thrown with your back to the camera', act: 'review' });
+  if (drops.length) findings.push({ text: `Guard dropped ${drops.length} time${drops.length === 1 ? '' : 's'}`, sub: `First at ${fmtT(drops[0].t)}`, t: drops[0].t, i: drops[0].i });
+  if (feints.length) findings.push({ text: `${feints.length} feint${feints.length === 1 ? '' : 's'}, ${punches.filter((e) => e.afterFeint).length} led into a punch`, sub: `First at ${fmtT(feints[0].t)}`, t: feints[0].t, i: feints[0].i });
   el.innerHTML = `
     <section class="card">
       <h2>Video review</h2>
-      <video id="vidPreview" src="${j.url}" controls playsinline muted class="vid-preview"></video>
       <div class="vid-quality">
         <div class="${j.tracked >= 85 ? 'good' : j.tracked >= 70 ? 'warn' : 'bad'}"><b>${j.tracked}%</b><span>Body tracked</span></div>
         <div><b>${punches.length}</b><span>Punches${others.some((e) => e.kind === 'feint') ? ` · ${others.filter((e) => e.kind === 'feint').length} feints` : ''}</span></div>
         <div class="${avgConf == null ? '' : avgConf >= 75 ? 'good' : avgConf >= 60 ? 'warn' : 'bad'}"><b>${avgConf ?? '–'}${avgConf != null ? '%' : ''}</b><span>Avg confidence</span></div>
       </div>
       ${j.tracked < 70 || j.multi >= 20 || away >= 25 ? `<div class="msg behind" style="margin:0 0 10px"><b>Treat these numbers as estimates.</b> ${j.tracked < 70 ? `The camera found you in only ${j.tracked}% of frames. ` : ''}${j.multi >= 20 ? `Someone else was in ${j.multi}% of frames, so some of their movement can read as yours. ` : ''}${away >= 25 ? `Your back was to the camera ${away}% of the time: from behind a straight punch looks bent, so jabs and crosses can read as hooks, and guard and hand return can't be measured. ${unsure} punch types are marked "type?". ` : ''}Check the detections below.</div>` : ''}
-      <ul class="small">
+      ${findings.length ? `<ul class="findings">${findings.map((f) => `<li><button type="button" class="fd" ${f.act ? `data-act="${f.act}"` : `data-ev="${f.i}"`}><b>${esc(f.text)}</b><span>${esc(f.sub)}</span><span class="chev">›</span></button></li>`).join('')}</ul>` : ''}
+      <details class="howto"><summary class="small">Analysis details</summary><ul class="small">
         <li>${j.frames ?? ''} frames analysed${j.multi ? ` · ${j.multi}% had 2 people (following the person you tapped)` : ''}</li>
         <li>Stance detected: ${esc(stanceTxt)}</li>
         ${j.comboCheck ? comboCheckHTML(j.comboCheck) : ''}
-        ${j.ai ? `<li id="aiStatus">${aiStatusHTML(j.ai)}</li>` : ''}
-        <li>${others.filter((e) => e.kind === 'feint').length} feints${others.some((e) => e.kind === 'feint') ? ` · ${punches.filter((e) => e.afterFeint).length} led straight into a punch` : ''}</li>
-        <li>${others.filter((e) => e.kind === 'guardDrop').length} guard drops · ${others.filter((e) => e.kind === 'crossedFeet').length} crossed-feet moments</li>
-      </ul>
-      <p class="muted small">Computer vision isn't perfect. Tap a time to jump there, fix the punch type, or untick anything that's wrong. Low-confidence detections start unticked.</p>
-      ${j.subject !== 'pro' && punches.length ? `<button class="btn primary block" id="teach" type="button">Teach it your punches (${punches.filter((e) => e.labelled).length}/${punches.length} labelled)</button>` : ''}
-      <label class="switch"><input type="checkbox" id="uncertain" ${uncertainOnly ? 'checked' : ''}> <span>Only show uncertain (&lt;70%)</span></label>
+        <li>${others.filter((e) => e.kind === 'crossedFeet').length} crossed-feet moments</li>
+      </ul></details>
+      ${j.ai ? `<p class="small" id="aiStatus">${aiStatusHTML(j.ai)}</p>` : ''}
+      ${j.subject !== 'pro' && punches.length ? `<button class="btn ghost block" id="teach" type="button">Teach it your punches (${punches.filter((e) => e.labelled).length}/${punches.length} labelled)</button>` : ''}
     </section>
     ${j.sheets?.length ? `<section class="card">
       <h3 style="margin-top:0">Send to Claude (free)</h3>
@@ -692,16 +787,25 @@ function renderReview(el, app) {
     </section>` : ''}
     ${filmingTips(j) ? `<section class="card"><div class="msg">${filmingTips(j)}</div></section>` : ''}
     ${j.tracked < 30 ? `<section class="card"><div class="msg behind"><b>I could barely see you in this video.</b> Try: whole body in frame (head to feet), steadier camera, better light, or re-run and tap yourself carefully if someone else is in the shot. You can also use Fast/Normal detail on long clips.</div></section>` : ''}
-    <section class="card">
-      ${shown.length ? '' : '<p class="muted small" style="margin:0">No detections to review.</p>'}
-      <ul class="events">${shown.map((e) => `
-        <li class="${e.keep ? '' : 'off'}">
-          <input type="checkbox" data-keep="${e.i}" ${e.keep ? 'checked' : ''} aria-label="Keep detection">
-          <button class="linkbtn" data-seek="${e.t}">${fmtT(e.t)}</button>
-          ${e.kind === 'punch'
-            ? `<select data-fix="${e.i}">${Object.entries(PUNCH_NAMES).map(([k, n]) => opt(k, e.fix, n)).join('')}</select>`
-            : `<span>${e.kind === 'guardDrop' ? 'Guard drop' : e.kind === 'feint' ? `Feint (${e.role === 'lead' ? 'lead' : 'rear'} hand)` : 'Crossed feet'}</span>`}
-          ${e.typeUnsure ? '<span class="badge est" title="Thrown with your back to the camera: the punch type is a guess">type?</span>' : `<span class="badge ${e.conf >= 80 ? 'good' : e.conf >= 60 ? 'warn' : 'bad'}">${e.conf}%</span>`}
+    <section class="card rv-card">
+      <div class="rv-player">
+      <div class="card-head"><h2>Detections</h2>${nReview ? `<div class="seg ev-filter" role="radiogroup" aria-label="Show"><label><input type="radio" name="evf" value="all" ${el.dataset.evf !== 'review' ? 'checked' : ''}><span>All ${shown.length}</span></label><label><input type="radio" name="evf" value="review" ${el.dataset.evf === 'review' ? 'checked' : ''}><span>Check ${nReview}</span></label></div>` : ''}</div>
+      <video id="vidPreview" src="${j.url}" controls playsinline muted class="vid-preview"></video>
+      ${shown.length ? `<div class="tl" id="tl" aria-label="Detections over the video">
+        <div class="tl-track">${shown.map((e) => `<button type="button" class="tl-m k-${e.kind}${e.keep ? '' : ' off'}${review(e) ? ' rv' : ''}" data-ev="${e.i}" style="left:${pct(e.t)}" aria-label="${esc(label(e))} at ${fmtT(e.t)}"></button>`).join('')}<div class="tl-ph" id="tlPh"></div></div>
+        <div class="tl-axis"><span>0:00</span><span class="tl-key"><i class="k-punch"></i>punch <i class="k-feint"></i>feint <i class="k-guardDrop"></i>guard drop <i class="rv"></i>check</span><span>${fmtT(j.durMs)}</span></div>
+      </div>` : ''}
+      </div>
+      ${shown.length ? '<p class="muted small" style="margin:0 0 8px">Tap one to watch it and fix it. Unticked ones don\'t count. Low-confidence ones start unticked.</p>' : '<p class="muted small" style="margin:0">No detections to review.</p>'}
+      <ul class="events${el.dataset.evf === 'review' ? ' only-review' : ''}" id="evList">${shown.map((e) => `
+        <li class="${e.keep ? '' : 'off'}${review(e) ? ' rv' : ''}" data-row="${e.i}">
+          <input type="checkbox" data-keep="${e.i}" ${e.keep ? 'checked' : ''} aria-label="Count this detection">
+          <button type="button" class="ev-main" data-ev="${e.i}" aria-expanded="false">
+            <span class="ev-t num">${fmtT(e.t)}</span>
+            <span class="pnum k-${e.kind}">${chip(e)}</span>
+            <span class="ev-name">${esc(label(e))}</span>
+            ${e.typeUnsure ? '<span class="badge est" title="Thrown with your back to the camera: the punch type is a guess">type?</span>' : `<span class="conf-m ${e.conf >= 80 ? 'good' : e.conf >= 60 ? 'warn' : 'bad'}" title="Confidence ${e.conf}%"><i style="width:${e.conf}%"></i><span>${e.conf}%</span></span>`}
+          </button>
           ${e.ai ? `<span class="badge ai" title="Checked by Claude">${e.ai === 'added' ? 'Claude: missed' : e.ai === 'none' ? 'Claude: not a punch' : e.ai === 'same' ? 'Claude ✓' : 'Claude fixed'}</span>` : ''}
         </li>`).join('')}</ul>
     </section>
@@ -726,19 +830,7 @@ function renderReview(el, app) {
     renderLabel(el, app);
     el.scrollIntoView({ block: 'start' });
   });
-  $('#uncertain', el).addEventListener('change', (e) => { el.dataset.uncertain = e.target.checked ? '1' : ''; renderReview(el, app); });
-  $$('[data-seek]', el).forEach((b) => b.addEventListener('click', () => {
-    const v = $('#vidPreview', el);
-    v.currentTime = Math.max(0, +b.dataset.seek / 1000 - 0.5);
-    v.play().catch(() => {});
-    setTimeout(() => v.pause(), 1500);
-  }));
-  $$('[data-keep]', el).forEach((c) => c.addEventListener('change', () => {
-    j.events[+c.dataset.keep].keep = c.checked;
-    j.events[+c.dataset.keep].edited = true;
-    c.closest('li').classList.toggle('off', !c.checked);
-  }));
-  $$('[data-fix]', el).forEach((s) => s.addEventListener('change', () => { j.events[+s.dataset.fix].fix = s.value; j.events[+s.dataset.fix].edited = true; }));
+  bindDetections(el, j, { label, chip });
   $('#vidDiscard', el).addEventListener('click', () => {
     if (!confirm('Discard this analysis?')) return;
     j.aiAbort?.abort();
