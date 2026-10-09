@@ -73,7 +73,7 @@ export function renderVideo(el, app) {
         <div class="bar"><div id="vidBar" style="width:0%"></div></div>
         <p class="small muted" id="vidStatus">Loading…</p>
         <p class="small muted" style="margin-top:0">Keep this screen open. When it finishes you can check every punch and save frames for your Claude chat.</p>
-        <button class="btn ghost" id="vidCancel" type="button">Cancel</button>
+        <div class="row2"><button class="btn ghost" id="vidNotHere" type="button" hidden>I'm out of shot</button><button class="btn ghost" id="vidCancel" type="button">Cancel</button></div>
       </div>
     </section>`;
   const vf = $('#vidForm', el);
@@ -124,9 +124,11 @@ function grabFrame(video) {
   return frameCanvas;
 }
 
-// Average clothing colour over each person's torso: the tracker's main identity cue.
+// What each person looks like: average colour of their top (shoulders to hips) and of their legs
+// (hips to knees). The tracker's main identity cue: two colours tell people apart far better
+// than one (a brown top and a black top look alike in shade; khaki trousers and blue shorts don't).
 const sampler = document.createElement('canvas');
-function sampleColors(frame, people) {
+function sampleLooks(frame, people) {
   const fw = frame.videoWidth || frame.width, fh = frame.videoHeight || frame.height;
   if (!people.length || !fw) return [];
   const w = 96, h = Math.round((96 * fh) / fw);
@@ -136,26 +138,53 @@ function sampleColors(frame, people) {
   try {
     g.drawImage(frame, 0, 0, w, h);
     const data = g.getImageData(0, 0, w, h).data;
-    return people.map((pts) => {
-      const xs = [pts[11].x, pts[12].x, pts[23].x, pts[24].x], ys = [pts[11].y, pts[12].y, pts[23].y, pts[24].y];
-      let x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
-      const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
-      const hw = Math.max(0.02, (x1 - x0) * 0.3), hh = Math.max(0.03, (y1 - y0) * 0.3);
-      x0 = cx - hw; x1 = cx + hw; y0 = cy - hh; y1 = cy + hh;
+    const region = (pts, ids) => {
+      const ps = ids.map((i) => pts[i]);
+      if (ps.some((p) => !p || (p.visibility ?? 1) < 0.3)) return null;
+      const xs = ps.map((p) => p.x), ys = ps.map((p) => p.y);
+      const cx = (Math.min(...xs) + Math.max(...xs)) / 2, cy = (Math.min(...ys) + Math.max(...ys)) / 2;
+      const hw = Math.max(0.02, (Math.max(...xs) - Math.min(...xs)) * 0.3), hh = Math.max(0.02, (Math.max(...ys) - Math.min(...ys)) * 0.3);
       let r = 0, gr = 0, b = 0, n = 0;
       for (let i = 0; i < 5; i++) {
         for (let j = 0; j < 5; j++) {
-          const px = Math.round((x0 + ((x1 - x0) * i) / 4) * (w - 1)), py = Math.round((y0 + ((y1 - y0) * j) / 4) * (h - 1));
+          const px = Math.round((cx - hw + (2 * hw * i) / 4) * (w - 1)), py = Math.round((cy - hh + (2 * hh * j) / 4) * (h - 1));
           if (px < 0 || py < 0 || px >= w || py >= h) continue;
           const k = (py * w + px) * 4;
           r += data[k]; gr += data[k + 1]; b += data[k + 2]; n++;
         }
       }
-      return n ? [r / n, gr / n, b / n] : null;
+      return n >= 8 ? [r / n, gr / n, b / n] : null;
+    };
+    return people.map((pts) => {
+      const torso = region(pts, [11, 12, 23, 24]), legs = region(pts, [23, 24, 25, 26]);
+      return torso || legs ? { ...(torso && { torso }), ...(legs && { legs }) } : null;
     });
   } catch {
     return [];
   }
+}
+
+// Box around a person (normalised image coordinates), from the landmarks the model is sure of.
+function boxOf(pts) {
+  const seen = pts.filter((p) => (p.visibility ?? 1) > 0.3);
+  if (seen.length < 5) return null;
+  const xs = seen.map((p) => p.x), ys = seen.map((p) => p.y);
+  return { x0: Math.min(...xs), y0: Math.min(...ys), x1: Math.max(...xs), y1: Math.max(...ys) };
+}
+// How much of the boxer is covered by someone else (0–1): the partner stepping in front.
+function covered(people, idx) {
+  const a = boxOf(people[idx]);
+  if (!a) return 0;
+  const area = (a.x1 - a.x0) * (a.y1 - a.y0) || 1e-6;
+  let most = 0;
+  people.forEach((pts, i) => {
+    if (i === idx) return;
+    const b = boxOf(pts);
+    if (!b) return;
+    const ix = Math.max(0, Math.min(a.x1, b.x1) - Math.max(a.x0, b.x0)), iy = Math.max(0, Math.min(a.y1, b.y1) - Math.max(a.y0, b.y0));
+    most = Math.max(most, (ix * iy) / area);
+  });
+  return most;
 }
 
 // Waits for the next decoded frame (play, then pause on the first frame shown).
@@ -244,32 +273,58 @@ async function analyse(file, video, opts, el, app) {
     // Look through up to 5 s: people may walk into shot late, or one may be missed on a single frame.
     // Keep the frame showing the most people; stop as soon as two are seen.
     let first = [], colors = [];
+    const scanCosts = []; // how long the pose model takes on this phone, to pick how to play the video
     const scanStart = performance.now(); // at most ~12 s looking, however the video behaves
     for (let i = 0; i < 90 && !cancelled && !video.ended && performance.now() - scanStart < 12000; i++) {
       await nextFrame(video);
       let found = [];
       const frame = grabFrame(video);
+      const d0 = performance.now();
       try { found = detectVideoFrame(lm, frame)?.landmarks || []; } catch { found = []; }
-      if (found.length > first.length) { first = found; colors = sampleColors(frame, found); }
+      scanCosts.push(performance.now() - d0);
+      if (found.length > first.length) { first = found; colors = sampleLooks(frame, found); }
       if (first.length > 1 || (first.length === 1 && video.currentTime > 1.5) || video.currentTime > 5) break;
     }
     if (cancelled) throw new Error('cancelled');
-    if (first.length > 1) {
-      drawPeople(overlay, video, first, -1);
-      const target = opts.subject === 'pro' ? 'the boxer' : 'yourself';
-      status.innerHTML = `<b>Tap ${target}</b> in the video to start.`;
+    // Time the pose model a few times on this phone (the first run is a slow warm-up).
+    while (scanCosts.length < 4) {
+      const d0 = performance.now();
+      try { detectVideoFrame(lm, grabFrame(video)); } catch { break; }
+      scanCosts.push(performance.now() - d0);
+    }
+    const target = opts.subject === 'pro' ? 'the boxer' : 'yourself';
+    // Ask the boxer to tap themselves: at the start, and again if they're lost for a while.
+    // Resolves to the person's index, or -1 for "not in shot" (again) or cancel.
+    const askWho = (people, again) => {
+      drawPeople(overlay, video, people, -1);
+      status.innerHTML = again ? `<b>Lost you.</b> Tap ${target} to carry on.` : `<b>Tap ${target}</b> in the video to start.`;
       stage.dataset.pick = `Tap ${target}`;
       stage.classList.add('pick');
+      const skip = $('#vidNotHere', el);
+      skip.hidden = !again;
       stage.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      // 'click' rather than 'pointerdown' so scrolling past the video with a finger doesn't pick anyone.
-      const i = await new Promise((resolve) => {
-        stage.addEventListener('click', (e) => {
+      return new Promise((resolve) => {
+        const done = (i) => {
+          stage.removeEventListener('click', onTap);
+          skip.removeEventListener('click', onSkip);
+          $('#vidCancel', el).removeEventListener('click', onSkip);
+          stage.classList.remove('pick');
+          skip.hidden = true;
+          resolve(i);
+        };
+        // 'click' rather than 'pointerdown' so scrolling past the video with a finger doesn't pick anyone.
+        const onTap = (e) => {
           const r = overlay.getBoundingClientRect();
-          resolve(personAt(first, (e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height));
-        }, { once: true });
-        $('#vidCancel', el).addEventListener('click', () => resolve(-1), { once: true });
+          done(personAt(people, (e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height));
+        };
+        const onSkip = () => done(-1);
+        stage.addEventListener('click', onTap);
+        skip.addEventListener('click', onSkip);
+        $('#vidCancel', el).addEventListener('click', onSkip);
       });
-      stage.classList.remove('pick');
+    };
+    if (first.length > 1) {
+      const i = await askWho(first, false);
       if (cancelled || i < 0) throw new Error('cancelled');
       tracker.lockOn(first[i], colors[i]);
       tracker.crowd = true;
@@ -280,9 +335,13 @@ async function analyse(file, video, opts, el, app) {
     }
 
     analyzer.startRound();
+    const started = performance.now();
+    let detectMs = 0, asks = 0, askedThisLoss = false, foundAt = -Infinity, wasLost = false, unsureN = 0;
 
+    // Analyse one frame. Returns the people in it (and their looks) when the boxer has been lost
+    // long enough that it's worth asking them to tap themselves again.
     const processFrame = (t) => {
-      if (t <= lastT) return;
+      if (t <= lastT) return null;
       lastT = t;
       while (t >= roundEnd) {
         rounds.push(analyzer.endRound());
@@ -291,19 +350,30 @@ async function analyse(file, video, opts, el, app) {
       }
       let r = null;
       const frame = grabFrame(video);
+      const d0 = performance.now();
       try { r = detectVideoFrame(lm, frame); } catch { r = null; }
+      detectMs += performance.now() - d0;
       const people = r?.landmarks || [];
+      const looks = people.length > 1 || tracker.crowd ? sampleLooks(frame, people) : [];
       let idx = -1;
-      if (tracker.locked) idx = tracker.pick(people, sampleColors(frame, people), t);
+      if (tracker.locked) idx = tracker.pick(people, looks, t);
       else if (people.length) {
         idx = choosePose(people, 'auto');
-        tracker.lockOn(people[idx], sampleColors(frame, people)[idx]);
+        tracker.lockOn(people[idx], (looks.length ? looks : sampleLooks(frame, people))[idx]);
       }
       const image = idx >= 0 ? people[idx] : null;
       const world = idx >= 0 ? r.worldLandmarks?.[idx] : null;
       if (image) tracked++;
       else if (people.length) lost++;
       else nobody++;
+      if (idx >= 0 && wasLost) foundAt = t;
+      wasLost = idx < 0;
+      if (idx >= 0) askedThisLoss = false;
+      // Tracking is unsure when the boxer is missing, was only just found again, or is mostly
+      // hidden behind someone: punches read then are as likely the partner's as theirs.
+      const unsure = tracker.crowd && (idx < 0 || t - foundAt < 300 || covered(people, idx) > 0.35);
+      if (unsure) unsureN++;
+      analyzer.context({ others: idx >= 0 ? people.filter((_, i) => i !== idx) : [], unsure }, t);
       sheets.add(frame, image, t);
       if (people.length > 1) multi++;
       frames++;
@@ -313,45 +383,101 @@ async function analyse(file, video, opts, el, app) {
         $('#vidBar', el).style.width = `${Math.min(100, (t / durMs) * 100)}%`;
         status.textContent = `Analysing ${fmtT(t)} / ${fmtT(durMs)} · ${analyzer.events.filter((e) => e.kind === 'punch').length} punches · body found in ${Math.round((tracked / frames) * 100)}% of frames`;
       }
+      const lostFor = tracker.lostSince != null ? t - tracker.lostSince : 0;
+      if (tracker.crowd && idx < 0 && people.length && lostFor > 2500 && !askedThisLoss && asks < 6) {
+        askedThisLoss = true;
+        asks++;
+        return { people, looks };
+      }
+      return null;
+    };
+    // The boxer was lost: ask, then carry on following whoever they tap (or keep looking).
+    const reAsk = async ({ people, looks }) => {
+      const i = await askWho(people, true);
+      if (cancelled) throw new Error('cancelled');
+      if (i >= 0) {
+        tracker.lockOn(people[i], looks[i]);
+        foundAt = lastT;
+      }
     };
 
+    const gap = 1000 / opts.fps - 5;
+    let mode = 'step';
     if ('requestVideoFrameCallback' in HTMLVideoElement.prototype) {
-      // Play the video; on each shown frame we want, pause, analyse, then resume. Reliable on
-      // iPhone, and no frames are lost however slow the phone is.
-      const gap = 1000 / opts.fps - 5;
-      let watchdog = null;
+      // Play the video and analyse frames as they show. Fastest is to keep it playing, at a speed
+      // that leaves time to analyse each frame we want ('flow'). If frames we wanted go by
+      // unanalysed (a slow phone), fall back to pausing on each one ('step'): slower, but no
+      // frame is ever missed.
+      // A phone that can't analyse a frame in well under the time between frames steps from the start.
+      const typical = scanCosts.length > 1 ? scanCosts.slice(1).sort((a, b) => a - b)[Math.floor((scanCosts.length - 1) / 2)] : 0;
+      mode = typical * 1.5 > gap + 5 ? 'step' : 'flow';
+      let rate = 1, wanted = 0, missed = 0, prevT = null, slow = 0, settled = 0;
+      let watchdog = null, asking = false;
       await new Promise((resolve, reject) => {
         let gotFrame = false;
         let lastProgress = performance.now(), nudged = false;
         // If playback stops delivering frames, nudge it once, then give a clear message
         // instead of sitting on a frozen screen.
         watchdog = setInterval(() => {
-          if (cancelled) return;
+          if (cancelled || asking) { lastProgress = performance.now(); return; }
           const idle = performance.now() - lastProgress;
           if (idle > 6000 && !nudged) { nudged = true; video.play().catch(() => {}); }
           if (idle > 20000) reject(new Error('The analysis stopped responding on this video. Try Detail: Fast, or a shorter clip (iPhone: Settings → Camera → Record Video → 1080p HD).'));
         }, 2000);
+        const resume = () => {
+          video.requestVideoFrameCallback(onFrame);
+          if (video.paused) video.play().catch(() => {});
+        };
         const onFrame = (now, meta) => {
           if (cancelled) return reject(new Error('cancelled'));
           gotFrame = true;
           lastProgress = performance.now();
           nudged = false;
           const t = meta.mediaTime * 1000;
-          if (t - lastT >= gap) {
-            video.pause();
-            processFrame(t);
+          if (video.ended || t >= durMs - 40) {
+            if (t - lastT >= gap) processFrame(t);
+            return resolve();
           }
-          if (video.ended || t >= durMs - 40) return resolve();
-          video.requestVideoFrameCallback(onFrame);
-          if (video.paused) video.play().catch(() => {});
+          if (t - lastT >= gap) {
+            if (mode === 'step') video.pause();
+            const c0 = performance.now();
+            const ask = processFrame(t);
+            const cost = performance.now() - c0;
+            if (mode === 'flow') {
+              // Steer the speed by how much video went by since the last analysed frame: a wanted
+              // frame skipped means slow down; keeping up means there may be room to go faster.
+              if (prevT != null) {
+                const step = t - prevT, n = Math.round(step / (gap + 5));
+                if (++settled > 10) { wanted += Math.max(1, n); missed += Math.max(0, n - 1); }
+                rate = Math.min(2.5, Math.max(0.5, n <= 1 ? rate + 0.005 : rate * 0.8)); // creep up, back off fast
+              }
+              prevT = t;
+              if (Math.abs(video.playbackRate - rate) > 0.1) video.playbackRate = rate;
+              // Too slow to keep up even at half speed, or frames slipping by: pause on each one.
+              slow = cost > 2 * (gap + 5) ? slow + 1 : 0;
+              if (slow >= 2 || (wanted >= 20 && missed / wanted > 0.15)) {
+                // Go back to the last frame analysed so nothing that went by is lost.
+                mode = 'step';
+                video.pause();
+                video.playbackRate = 1;
+                video.currentTime = (lastT + 1) / 1000;
+              }
+            }
+            if (ask) {
+              asking = true;
+              video.pause();
+              return reAsk(ask).then(() => { asking = false; lastProgress = performance.now(); resume(); }, reject);
+            }
+          }
+          resume();
         };
-        video.addEventListener('ended', resolve, { once: true });
+        video.addEventListener('ended', () => { if (!asking) resolve(); }, { once: true });
         video.requestVideoFrameCallback(onFrame);
         video.currentTime = 0;
         video.play().catch(() => reject(new Error('The video would not play. Tap Analyse again.')));
         setTimeout(() => { if (!gotFrame && !cancelled) reject(new Error('The video did not start playing. Tap Analyse again.')); }, 15000);
         $('#vidCancel', el).addEventListener('click', () => reject(new Error('cancelled')));
-      }).finally(() => clearInterval(watchdog));
+      }).finally(() => { clearInterval(watchdog); video.playbackRate = 1; });
     } else {
       // Fallback: step through the video frame by frame.
       const step = 1000 / opts.fps;
@@ -359,10 +485,12 @@ async function analyse(file, video, opts, el, app) {
         if (cancelled) throw new Error('cancelled');
         video.currentTime = t / 1000;
         await new Promise((res) => { video.addEventListener('seeked', res, { once: true }); setTimeout(res, 3000); });
-        processFrame(t);
+        const ask = processFrame(t);
+        if (ask) await reAsk(ask);
         if (frames % 5 === 0) await new Promise((res) => setTimeout(res, 0));
       }
     }
+    const speed = { ms: Math.round(performance.now() - started), detect: frames ? Math.round(detectMs / frames) : null, mode, asks, unsure: frames ? Math.round((unsureN / frames) * 100) : 0 };
     rounds.push(analyzer.endRound());
     video.pause();
     sheets.flush();
@@ -418,7 +546,7 @@ async function analyse(file, video, opts, el, app) {
     job = {
       done: true, url, type: opts.type, subject: opts.subject, proName: opts.proName, roundSec: opts.roundSec || Math.round(durMs / 1000), durMs,
       rounds, events: analyzer.events.map((e, i) => ({ ...e, i, keep: e.conf >= 50, fix: e.type })),
-      calib: { ...analyzer.calib, model, who, seen: [frames, nobody, lost], multi: frames ? Math.round((multi / frames) * 100) : 0, comboCheck: comboCheck || undefined, cal: analyzer.cal || undefined },
+      calib: { ...analyzer.calib, model, who, speed, seen: [frames, nobody, lost], multi: frames ? Math.round((multi / frames) * 100) : 0, comboCheck: comboCheck || undefined, cal: analyzer.cal || undefined },
       comboCheck,
       frames, tracked: frames ? Math.round((tracked / frames) * 100) : 0, multi: frames ? Math.round((multi / frames) * 100) : 0,
       date: new Date(file.lastModified || Date.now()).toISOString(),

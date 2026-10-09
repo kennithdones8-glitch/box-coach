@@ -374,6 +374,38 @@ test('PersonTracker follows the boxer through side swaps and occlusion', async (
   assert.equal(solo.pick([], [], 700), -1);
 });
 
+test('PersonTracker never switches to the partner while the boxer is out of shot', async () => {
+  const { PersonTracker } = await import('../web/js/form.js');
+  const person = (x) => {
+    const pts = Array.from({ length: 33 }, () => ({ x, y: 0.5 }));
+    pts[LM.NOSE] = { x, y: 0.2 };
+    pts[LM.L_SH] = { x: x + 0.03, y: 0.28 }; pts[LM.R_SH] = { x: x - 0.03, y: 0.28 };
+    pts[LM.L_HIP] = { x: x + 0.02, y: 0.5 }; pts[LM.R_HIP] = { x: x - 0.02, y: 0.5 };
+    pts[LM.L_ANK] = { x: x + 0.04, y: 0.8 }; pts[LM.R_ANK] = { x: x - 0.04, y: 0.8 };
+    return pts;
+  };
+  // Real sparring clip: brown top + khaki trousers vs black top + blue shorts. The tops alone are
+  // only ~65 apart, close enough that the old tracker took the partner once the boxer left.
+  const BOXER = { torso: [95, 62, 45], legs: [170, 150, 120] }, PARTNER = { torso: [35, 32, 36], legs: [40, 60, 140] };
+  const dim = (l, k) => ({ torso: l.torso.map((c) => c * k), legs: l.legs.map((c) => c * k) });
+  for (const withLegs of [true, false]) {
+    const look = (l) => (withLegs ? l : { torso: l.torso });
+    const tr = new PersonTracker();
+    tr.lockOn(person(0.3), look(BOXER));
+    let t = 0;
+    for (let i = 0; i < 30; i++) assert.equal(tr.pick([person(0.3), person(0.6)], [look(BOXER), look(PARTNER)], (t += 70)), 0);
+    // Boxer leaves the shot for 2 s; the partner walks across into the boxer's spot.
+    for (let i = 0; i < 30; i++) {
+      const x = 0.6 - (0.3 * i) / 29;
+      assert.equal(tr.pick([person(x)], [look(PARTNER)], (t += 70)), -1, `legs ${withLegs}: took the partner at frame ${i}`);
+    }
+    // Boxer comes back on the other side, in shade.
+    assert.equal(tr.pick([person(0.3), person(0.8)], [look(PARTNER), look(dim(BOXER, 0.8))], (t += 70)), 1, `legs ${withLegs}: boxer back`);
+    // Partner standing in front: only the boxer's colours win, never the partner's.
+    assert.equal(tr.pick([person(0.8)], [look(dim(BOXER, 0.85))], (t += 70)), 0);
+  }
+});
+
 test('head movement: punching alone is not head movement, slips are', () => {
   const run = (withSlips) => {
     const an = new FormAnalyzer();
@@ -708,4 +740,44 @@ test('defense moves: a sideways head move is a slip, a dip is a roll, gloves to 
   run(Array.from({ length: 10 }, () => pose({ [LM.L_WR]: { x: 0.08, y: -0.72 }, [LM.R_WR]: { x: -0.08, y: -0.72 } })));
   run(still(20));
   assert.deepEqual(an.round.defLog.map((e) => e.move), ["slip", "roll", "block"], JSON.stringify(an.round.defLog));
+});
+
+test("sparring: the partner's glove on yours, or a moment of lost tracking, is not your punch", async () => {
+  const { onTheirGlove } = await import('../web/js/form.js');
+  const jab = () => punch(LM.L_WR, LM.L_EL, { x: 0.16, y: -0.49, z: -0.61 }, { x: 0.17, y: -0.47, z: -0.33 });
+  // Partner beside the boxer: arm straight out (their jab) or bent (glove at their own face), with
+  // the glove right where the boxer's lead wrist is in the picture.
+  const partner = (wr, straight) => {
+    const pts = Array.from({ length: 33 }, () => ({ x: wr.x + 0.3, y: 0.5, visibility: 0.99 }));
+    pts[LM.L_SH] = pts[LM.R_SH] = { x: wr.x + 0.25, y: wr.y, visibility: 0.99 };
+    pts[LM.L_EL] = pts[LM.R_EL] = straight ? { x: wr.x + 0.12, y: wr.y, visibility: 0.99 } : { x: wr.x + 0.1, y: wr.y + 0.15, visibility: 0.99 };
+    pts[LM.L_WR] = pts[LM.R_WR] = straight ? { ...wr, visibility: 0.99 } : { x: wr.x + 0.2, y: wr.y + 0.01, visibility: 0.99 };
+    pts[LM.L_HIP] = pts[LM.R_HIP] = { x: wr.x + 0.25, y: wr.y + 0.15, visibility: 0.99 };
+    return pts;
+  };
+  const run = (mode) => {
+    const an = new FormAnalyzer();
+    an.startRound();
+    let t = 0;
+    for (let rep = 0; rep < 6; rep++) {
+      for (const w of [...jab(), ...still(20)]) {
+        const img = image(w, Math.sin(t / 300) * 0.05);
+        const others = mode === 'theirs' ? [partner(img[LM.L_WR], true)] : mode === 'guard' ? [partner(img[LM.L_WR], false)] : [];
+        an.context({ others, unsure: mode === 'lost' && w !== still(1)[0] && t % 1000 < 400 }, t);
+        an.update(w, img, t);
+        t += 33;
+      }
+    }
+    an.endRound();
+    return an.events.filter((e) => e.kind === 'punch').length;
+  };
+  const clean = run('alone');
+  assert.ok(clean >= 5, `jabs alone: ${clean}`);
+  assert.equal(run('theirs'), 0, "partner's straight arm on the boxer's glove");
+  assert.equal(run('guard'), clean, 'jab landing on the partner\'s guard still counts');
+  assert.ok(run('lost') < clean, 'punches while tracking was unsure are dropped');
+  // Directly: a straight arm touching the wrist is flagged, a bent one is not.
+  const me = image(pose());
+  assert.ok(onTheirGlove(me, [partner(me[LM.L_WR], true)]).has(LM.L_WR));
+  assert.equal(onTheirGlove(me, [partner(me[LM.L_WR], false)]).size, 0);
 });
