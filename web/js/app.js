@@ -42,6 +42,8 @@ import { parseCombo, comboText, comboLabel, comboSpeech, comboKey, punchDigits, 
 
 let state = store.load();
 const view = $('#view');
+// Saved data that couldn't be read is kept aside (store.RESCUE), never silently replaced.
+if (store.loadProblem) setTimeout(() => toast(store.loadProblem === 'rescued' ? 'Your saved data could not be read. A copy was kept: Settings → Your data.' : 'Your saved data could not be read.'), 800);
 
 // Model cache: recomputed only when data changes.
 let version = 0;
@@ -51,7 +53,7 @@ function persist() {
   if (!store.save(state)) toast('Could not save — storage is full or blocked.');
 }
 
-export const APP_VERSION = '2026.10.09-1';
+export const APP_VERSION = '2026.10.09-2';
 
 const app = {
   version: APP_VERSION,
@@ -311,12 +313,12 @@ function recapHTML() {
   if ((new Date().getDay() + 6) % 7 > 2) return '';
   const r = weeklyRecap(state.sessions);
   if (!r || state.profile.recapSeen === r.weekOf) return '';
-  const line = (c) => `${esc(c.name)} ${c.from}${c.unit} → ${c.to}${c.unit}`;
+  const line = (c) => `${esc(c.name)} ${c.from}${c.unit} → ${c.to}${c.unit} <span class="muted">(${c.nFrom} vs ${c.nTo} sessions)</span>`;
   return `<section class="card recap">
     <div class="eyebrow">Last week</div>
     <h2>${r.sessions} session${r.sessions === 1 ? '' : 's'} · ${r.days} day${r.days === 1 ? '' : 's'} · ${r.minutes} min${r.punches ? ` · ${r.punches.toLocaleString()} punches` : ''}</h2>
     ${r.best ? `<p class="fb-line good">✓ Better: ${line(r.best)}</p>` : ''}
-    ${r.worst ? `<p class="fb-line bad">→ Work on: ${line(r.worst)}</p>` : `<p class="small muted">${r.best ? 'Nothing slipped. ' : ''}Keep it going: Coach me picks this week's focus.</p>`}
+    ${r.worst ? `<p class="fb-line bad">→ Work on: ${line(r.worst)}</p>` : r.compared ? `<p class="small muted">${r.best ? 'Nothing slipped. ' : ''}Keep it going: Coach me picks this week's focus.</p>` : '<p class="small muted">Not enough camera sessions in both weeks to say what changed (2+ each week). Keep filming.</p>'}
     <button class="btn ghost block" id="recapDone" data-week="${r.weekOf}" type="button">Got it</button>
   </section>`;
 }
@@ -783,6 +785,7 @@ function onPhase(phase, round) {
     if (!quiet) { audio.bell(1); audio.vibrate([200, 100, 200]); }
     live.completedRounds = round;
     closeRound();
+    checkpoint();
     let msg = roundReport(round);
     const adj = adaptNextRound(round);
     if (adj) msg += ` ${adj}`;
@@ -1006,6 +1009,28 @@ function finishSession() {
   if (!live) return;
   const l = live;
   l.liveModel = l.tracker?.model || null;
+  const session = buildSession(l, { test: l.plan.test ? finishTest(l) : undefined });
+  teardownLive();
+  live = null;
+  if (session.workSec < 15) {
+    store.clearDraft();
+    toast('Session too short to save.');
+    route();
+    return;
+  }
+  session.scores = scoreSession(session, state.profile);
+  renderSummary(session);
+}
+
+// Rounds finished so far, kept on the phone after each round (not punch tests: those are scored
+// only at the end). If the app is closed mid-session they come back on next open.
+function checkpoint() {
+  if (!live || live.plan.test || !live.completedRounds) return;
+  store.saveDraft(buildSession(live, { test: undefined }), true);
+}
+
+// The session record from a live session (finished or not).
+function buildSession(l, { test }) {
   const t = l.timer;
   const constraints = (l.plan.rounds_ || []).slice(0, l.completedRounds).map((r, i) => {
     const f = l.formRounds[i];
@@ -1027,22 +1052,14 @@ function finishSession() {
     comboCalls: l.callResults.length ? l.callResults.slice(0, 400) : undefined,
     coach: l.plan.coach ? { ...l.plan.coach } : undefined,
     benchmark: l.plan.benchmark || undefined,
-    test: l.plan.test ? finishTest(l) : undefined,
+    test,
     spot: l.analyzer?.sig ? { ...l.analyzer.sig } : undefined, // where the camera was
     workout: l.plan.workout || undefined,
     defense: l.plan.defense && l.defRounds.length ? defenseSummary(l.defRounds) : undefined,
     adjustments: l.adjustments.length ? l.adjustments : undefined,
     rpe: 7, notes: '',
   };
-  teardownLive();
-  live = null;
-  if (session.workSec < 15) {
-    toast('Session too short to save.');
-    route();
-    return;
-  }
-  session.scores = scoreSession(session, state.profile);
-  renderSummary(session);
+  return session;
 }
 
 $('#livePause').addEventListener('click', () => {
@@ -1216,6 +1233,7 @@ function coachedHTML(session) {
 }
 
 function renderSummary(session) {
+  store.saveDraft(session);
   const { memory: preview, events } = updateMemory(state.memory, session, state.profile);
   const fb = feedback(session, state.sessions, preview, state.profile);
   $$('.tabs a').forEach((a) => a.classList.remove('active'));
@@ -1260,7 +1278,7 @@ function renderSummary(session) {
     app.startPunchTest(testProblems(session.test).retest);
   });
   $('#discard').addEventListener('click', () => {
-    if (confirm('Discard this session?')) { pendingSummary = null; location.hash = '#home'; route(); }
+    if (confirm('Discard this session?')) { pendingSummary = null; store.clearDraft(); location.hash = '#home'; route(); }
   });
   $('#shareSession').addEventListener('click', async () => {
     const r = await shareCard(cardData(session, { name: sessionName(session), unit: state.profile.unit, badges: newBadges(state.sessions, session, state.profile) }));
@@ -1331,6 +1349,7 @@ function saveSession(session) {
   state.sessions.sort((a, b) => new Date(a.date) - new Date(b.date));
   store.trimDiagnostics(state.sessions);
   persist();
+  store.clearDraft();
   afterDataChange();
 }
 
@@ -1692,6 +1711,17 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:') {
 afterDataChange();
 askPersist();
 route();
+// A session the phone closed the app on before it was saved: back to its summary to save it.
+{
+  const draft = store.takeDraft();
+  if (draft && state.sessions.some((x) => x.id === draft.session.id)) store.clearDraft();
+  else if (draft && !pendingSummary) {
+    const s = draft.session;
+    s.scores = s.type in BOXING_TYPES ? scoreSession(s, state.profile) : {};
+    renderSummary(s);
+    toast(draft.partial ? `Recovered ${s.completedRounds} round${s.completedRounds === 1 ? '' : 's'} from a session that was cut off. Save or discard it.` : 'Recovered your unsaved session. Save or discard it.');
+  }
+}
 
 // The app moved from /app/ to /box-coach/. A phone that installed the old address keeps running
 // the cached copy, so once the new address answers, point there. Same site, so the sessions

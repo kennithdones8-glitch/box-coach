@@ -30,3 +30,22 @@ test('no recap without sessions last week; small wobbles are not called changes'
   assert.equal(r.best, null);
   assert.equal(r.worst, null);
 });
+
+test('recap only compares well-measured sessions of the same kind, and says when it cannot', () => {
+  const now = new Date('2026-10-05T09:00:00');
+  const badCam = { frames: 400, tracked: 200 }; // body found in half the frames
+  const r = weeklyRecap([
+    s('2026-09-22T18:00:00', { guard: 60 }), s('2026-09-24T18:00:00', { guard: 62 }),
+    s('2026-09-29T18:00:00', { guard: 75 }), s('2026-10-01T18:00:00', { guard: 20 }, { calib: badCam }),
+  ], now);
+  assert.equal(r.best, null, 'one good session last week is not enough to call a change');
+  assert.equal(r.worst, null, 'the badly tracked session is not a slump');
+  assert.equal(r.compared, false);
+  // Bag rounds (high rate) one week, shadowboxing the next: not "punch rate dropped".
+  const bag = (d) => s(d, null, { type: 'bag', punches: { total: 1200 } });
+  const r2 = weeklyRecap([bag('2026-09-22T18:00:00'), bag('2026-09-24T18:00:00'), s('2026-09-29T18:00:00', null), s('2026-10-01T18:00:00', null)], now);
+  assert.equal(r2.worst, null);
+  // Enough well-measured sessions: the change comes with how many sessions it rests on.
+  const r3 = weeklyRecap([s('2026-09-22T18:00:00', { guard: 60 }), s('2026-09-24T18:00:00', { guard: 62 }), s('2026-09-29T18:00:00', { guard: 75 }), s('2026-10-01T18:00:00', { guard: 77 })], now);
+  assert.deepEqual([r3.best.key, r3.best.nFrom, r3.best.nTo, r3.compared], ['guard', 2, 2, true]);
+});

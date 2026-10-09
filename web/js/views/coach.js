@@ -11,6 +11,8 @@ import { EQUIPMENT } from '../coachme.js';
 import { englishVoices, setVoice, say, unlockAudio, loadVoicePack } from '../audio.js';
 import { line as voiceLine } from '../voice.js';
 
+const stored = (key) => { try { return !!localStorage.getItem(key); } catch { return false; } };
+
 const OWN = Object.fromEntries(Object.entries(EQUIPMENT).filter(([k]) => k !== 'none'));
 
 const taughtText = (p) => {
@@ -371,6 +373,8 @@ function settings(el, app) {
         <button class="btn ghost" id="exportBtn">Export backup</button>
         <label class="btn ghost file">Import backup<input type="file" id="importFile" accept="application/json,.json" hidden></label>
       </div>
+      ${stored(store.BEFORE_IMPORT) ? '<button class="btn ghost block" id="undoImport" type="button">Undo last import</button>' : ''}
+      ${stored(store.RESCUE) ? '<p class="msg small">Your earlier data on this phone could not be read, so a copy was kept. Download it and send it to whoever helps you with the app; it may be repairable.</p><button class="btn ghost block" id="rescueBtn" type="button">Download the unreadable data</button>' : ''}
       <button class="btn danger block" id="resetBtn">Erase everything</button>
     </section>
     <section class="card tips">
@@ -468,13 +472,36 @@ function settings(el, app) {
     const file = e.target.files[0];
     if (!file) return;
     try {
-      app.state = store.importJSON(await file.text());
+      const next = store.importJSON(await file.text()); // checked in full before anything changes
+      // Keep what was here, so the import can be undone.
+      try { localStorage.setItem(store.BEFORE_IMPORT, store.exportJSON(app.state)); } catch { /* no room: import anyway */ }
+      app.state = next;
       app.persist();
       toast(`Imported ${app.state.sessions.length} sessions.`);
       app.rerender();
     } catch (err) {
-      toast(err.message || 'Import failed.');
+      toast(err.message || 'Import failed. Nothing was changed.');
     }
+    e.target.value = '';
+  });
+  $('#undoImport', el)?.addEventListener('click', () => {
+    if (!confirm('Go back to your data from before the last import?')) return;
+    try {
+      app.state = store.importJSON(localStorage.getItem(store.BEFORE_IMPORT));
+      app.persist();
+      localStorage.removeItem(store.BEFORE_IMPORT);
+      toast('Back to your data from before the import.');
+    } catch (err) {
+      toast(err.message || 'Could not undo.');
+    }
+    app.rerender();
+  });
+  $('#rescueBtn', el)?.addEventListener('click', () => {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([localStorage.getItem(store.RESCUE) || ''], { type: 'application/json' }));
+    a.download = 'boxcoach-unreadable-data.json';
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   });
   $('#bugSend', el)?.addEventListener('click', async () => {
     const text = buildBugReport({ what: $('#bugWhat', el).value, version: app.version, state: app.state });

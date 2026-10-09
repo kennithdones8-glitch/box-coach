@@ -650,7 +650,7 @@ function renderReview(el, app) {
     </section>
     ${j.sheets?.length ? `<section class="card">
       <h3 style="margin-top:0">Send to Claude (free)</h3>
-      <p class="muted small">One tap copies this video's report and saves ${j.sheets.length} photo${j.sheets.length === 1 ? '' : 's'} of it (your upper body, frame by frame, with times): choose <b>Save Images</b>. Then in your Claude chat, paste the report and attach the photos. Claude checks every punch, and the app learns from it.</p>
+      <p class="muted small">One tap copies this video's report and saves ${j.sheets.length} photo${j.sheets.length === 1 ? '' : 's'} of it (your upper body, frame by frame, with times): choose <b>Save Images</b>. Then in your Claude chat, paste the report and attach the photos. Claude checks every punch, and the app learns from it.${j.sheets.at(-1).t1 < j.durMs - 3000 ? ` <b>The photos (and the Claude check) cover the first ${fmtT(j.sheets.at(-1).t1)} only</b>; the rest of the video is in the numbers above but not in the photos.` : ''}</p>
       <button class="btn primary block" id="saveFrames" type="button">📤 Copy report + save photos</button>
     </section>` : ''}
     ${filmingTips(j) ? `<section class="card"><div class="msg">${filmingTips(j)}</div></section>` : ''}

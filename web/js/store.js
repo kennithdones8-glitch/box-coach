@@ -52,33 +52,93 @@ function merge(base, data) {
   };
 }
 
+// If the saved data can't be read (cut short by a full phone, say), it's kept under RESCUE rather
+// than overwritten by the next save, and load reports it so the app can say so.
+export const RESCUE = 'boxcoach.rescue';
+export const BEFORE_IMPORT = 'boxcoach.beforeImport';
+export let loadProblem = null;
+
 export function load(storage = globalThis.localStorage) {
+  loadProblem = null;
+  let raw = null;
   try {
-    const raw = storage?.getItem(KEY);
+    raw = storage?.getItem(KEY);
     if (!raw) return defaultState();
     return merge(defaultState(), JSON.parse(raw));
   } catch {
+    if (raw) {
+      try { storage.setItem(RESCUE, raw); loadProblem = 'rescued'; } catch { loadProblem = 'unreadable'; }
+    }
     return defaultState();
   }
 }
 
+// Saves; if the phone's storage is full, slims the per-punch diagnostics of older sessions and
+// tries again before giving up (the sessions themselves are never dropped).
 export function save(state, storage = globalThis.localStorage) {
   try {
     storage?.setItem(KEY, JSON.stringify(state));
     return true;
   } catch {
+    for (const keep of [3, 0]) {
+      try {
+        trimDiagnostics(state.sessions, keep);
+        storage?.setItem(KEY, JSON.stringify(state));
+        return true;
+      } catch { /* still too big */ }
+    }
     return false;
   }
+}
+
+// A session not saved yet: the summary screen's, or the rounds done so far in a live session.
+// If the phone closes the app (it often does when it's put away), it comes back on next open.
+const DRAFT = 'boxcoach.draft';
+export function saveDraft(session, partial = false, storage = globalThis.localStorage) {
+  try { storage?.setItem(DRAFT, JSON.stringify({ session, partial, at: new Date().toISOString() })); return true; } catch { return false; }
+}
+export function takeDraft(storage = globalThis.localStorage) {
+  try {
+    const d = JSON.parse(storage?.getItem(DRAFT) || 'null');
+    return d && d.session && typeof d.session === 'object' && !Number.isNaN(new Date(d.session.date).getTime()) ? d : null;
+  } catch { return null; }
+}
+export function clearDraft(storage = globalThis.localStorage) {
+  try { storage?.removeItem(DRAFT); } catch { /* nothing to do */ }
 }
 
 export function exportJSON(state) {
   return JSON.stringify(state, null, 2);
 }
 
+// Every problem that would stop a backup from being used, checked before anything is replaced.
+export function checkBackup(data) {
+  const problems = [];
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return ['That file is not a BoxCoach backup.'];
+  if (!Array.isArray(data.sessions)) return ['That file is not a BoxCoach backup.'];
+  const okDate = (d) => typeof d === 'string' && !Number.isNaN(new Date(d).getTime());
+  data.sessions.forEach((x, i) => {
+    if (!x || typeof x !== 'object' || Array.isArray(x)) problems.push(`Session ${i + 1} is empty or not a session.`);
+    else if (!okDate(x.date)) problems.push(`Session ${i + 1} has no valid date.`);
+  });
+  for (const k of ARRAYS) {
+    if (k === 'sessions' || data[k] == null) continue;
+    if (!Array.isArray(data[k])) problems.push(`"${k}" is not a list.`);
+    else if (data[k].some((x) => x == null || typeof x !== 'object')) problems.push(`"${k}" has entries that aren't records.`);
+  }
+  for (const k of ['profile', 'settings', 'memory', 'coach', 'plans']) {
+    if (data[k] != null && (typeof data[k] !== 'object' || Array.isArray(data[k]))) problems.push(`"${k}" is not a record.`);
+  }
+  return problems;
+}
+
 export function importJSON(text) {
-  const data = JSON.parse(text);
-  if (!data || typeof data !== 'object' || !Array.isArray(data.sessions)) {
-    throw new Error('That file is not a BoxCoach backup.');
+  let data;
+  try { data = JSON.parse(text); } catch { throw new Error('That file is not a BoxCoach backup (it could not be read).'); }
+  const problems = checkBackup(data);
+  if (problems.length) {
+    const more = problems.length > 3 ? ` (+${problems.length - 3} more)` : '';
+    throw new Error(`Backup not imported, nothing was changed. ${problems.slice(0, 3).join(' ')}${more}`);
   }
   return merge(defaultState(), data);
 }

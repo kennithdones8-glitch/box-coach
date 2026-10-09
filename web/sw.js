@@ -1,10 +1,14 @@
 // Offline support: cache the app shell, and cache the pose model/runtime after first use.
-const CACHE = 'boxcoach-2026.10.09-1'; // must match APP_VERSION in js/app.js (a test checks)
+const CACHE = 'boxcoach-2026.10.09-2'; // must match APP_VERSION in js/app.js (a test checks)
+// Pages and pictures the app works without: cached if they load, never a reason to refuse an update.
+const OPTIONAL = ['about.html', 'privacy.html', 'support.html', 'img/1-today.jpg', 'img/3-punch-test.jpg', 'img/5-progress.jpg', 'voice/manifest.json'];
+// Everything the app needs to run offline. If one fails to load the update doesn't install (the
+// phone keeps the complete previous version) rather than installing half an app.
 const SHELL = [
-  './', 'index.html', 'about.html', 'privacy.html', 'support.html', 'css/styles.css', 'manifest.webmanifest', 'icon.svg', 'icon-192.png', 'icon-512.png', 'img/1-today.jpg', 'img/3-punch-test.jpg', 'img/5-progress.jpg',
+  './', 'index.html', 'css/styles.css', 'manifest.webmanifest', 'icon.svg', 'icon-192.png', 'icon-512.png',
   'js/app.js', 'js/audio.js', 'js/chart.js', 'js/coach.js', 'js/form.js', 'js/motion.js', 'js/plan.js', 'js/pose.js', 'js/store.js', 'js/timer.js',
   'js/ui.js', 'js/library.js', 'js/skills.js', 'js/analysis.js', 'js/recovery.js', 'js/hypotheses.js', 'js/engine.js', 'js/report.js',
-  'js/views/review.js', 'js/views/boxer.js', 'js/views/coach.js', 'js/views/video.js', 'js/views/combos.js', 'js/combos.js', 'js/calibrate.js', 'js/views/study.js', 'js/views/handoff.js', 'js/aicheck.js', 'js/safety.js', 'js/coachme.js', 'js/views/coachme.js', 'js/personal.js', 'js/punchtest.js', 'js/camcheck.js', 'js/bugreport.js', 'js/recap.js', 'js/badges.js', 'js/defense.js', 'js/friends.js', 'js/bells.js', 'js/coachvoice.js', 'js/voice.js', 'js/workouts.js', 'js/sharecard.js', 'js/voicepack.js', 'voice/manifest.json',
+  'js/views/review.js', 'js/views/boxer.js', 'js/views/coach.js', 'js/views/video.js', 'js/views/combos.js', 'js/combos.js', 'js/calibrate.js', 'js/views/study.js', 'js/views/handoff.js', 'js/aicheck.js', 'js/safety.js', 'js/coachme.js', 'js/views/coachme.js', 'js/personal.js', 'js/punchtest.js', 'js/camcheck.js', 'js/bugreport.js', 'js/recap.js', 'js/badges.js', 'js/defense.js', 'js/friends.js', 'js/bells.js', 'js/coachvoice.js', 'js/voice.js', 'js/workouts.js', 'js/sharecard.js', 'js/voicepack.js',
 ];
 // Recorded coach clips are named by their content, so they never change: kept across releases.
 const VOICE_CACHE = 'boxcoach-voice';
@@ -12,7 +16,10 @@ const RUNTIME_HOSTS = ['cdn.jsdelivr.net', 'storage.googleapis.com'];
 
 self.addEventListener('install', (e) => {
   // cache: 'reload' skips the browser's HTTP cache so a new version never installs stale files.
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL.map((u) => new Request(u, { cache: 'reload' })))).then(() => self.skipWaiting()));
+  const get = (u) => new Request(u, { cache: 'reload' });
+  e.waitUntil(caches.open(CACHE)
+    .then((c) => c.addAll(SHELL.map(get)).then(() => Promise.all(OPTIONAL.map((u) => c.add(get(u)).catch(() => {})))))
+    .then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', (e) => {
