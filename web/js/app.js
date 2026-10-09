@@ -53,7 +53,7 @@ function persist() {
   if (!store.save(state)) toast('Could not save — storage is full or blocked.');
 }
 
-export const APP_VERSION = '2026.10.09-2';
+export const APP_VERSION = '2026.10.09-3';
 
 const app = {
   version: APP_VERSION,
