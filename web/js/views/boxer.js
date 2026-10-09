@@ -2,7 +2,7 @@
 import { SKILLS, SKILL_GROUPS, OPPONENTS, PATTERN_LIBRARY } from '../library.js';
 import { evidenceFor, proofOfImprovement, styleProfile, developmentTimeline, compareThen, levelWord } from '../skills.js';
 import { fatigueMap, medAnalysis, DIM_NAMES } from '../analysis.js';
-import { BOXING_TYPES, TARGETS, outputPpm, speedText, speedIn } from '../coach.js';
+import { BOXING_TYPES, TARGETS, outputPpm, speedText, speedIn, trackingOk, punchCountOk } from '../coach.js';
 import { lineChart } from '../chart.js';
 import { badges } from '../badges.js';
 import { myCard, shareLink, COMPARE } from '../friends.js';
@@ -227,10 +227,16 @@ function friendsHTML(state) {
   </section>`;
 }
 
+// Chart time range: last 10 sessions, 30 or 90 days, or everything.
+const RANGES = [['10', 'Last 10'], ['30', '30 days'], ['90', '90 days'], ['all', 'All']];
+let range = '30';
 function charts(el, app) {
   const state = app.state;
-  const box = state.sessions.filter((s) => s.type in BOXING_TYPES && !s.manual).slice(-20);
-  const pts = (fn) => box.map((s) => ({ x: shortDate(s.date), y: fn(s) })).filter((p) => p.y != null);
+  const all = state.sessions.filter((s) => s.type in BOXING_TYPES && !s.manual);
+  const since = (d) => all.filter((s) => Date.now() - new Date(s.date) <= d * 86400000);
+  const box = range === '10' ? all.slice(-10) : range === 'all' ? all.slice(-60) : since(+range).slice(-60);
+  // est: the camera wasn't sure (tracking lost a lot, or someone else in frame for punch counts).
+  const pts = (fn, ok = trackingOk) => box.map((s) => ({ x: shortDate(s.date), y: fn(s), est: !ok(s) || undefined })).filter((p) => p.y != null);
   const prs = Object.entries(state.memory.prs).map(([k, p]) => ({ ...p, value: k === 'fastestHands' ? speedText(p.value, state.profile.unit) : p.value }));
   const weeks = [];
   const monday = new Date();
@@ -251,6 +257,8 @@ function charts(el, app) {
     </section>
     ${badgesHTML(state)}
     ${friendsHTML(state)}
+    <div class="seg range" role="group" aria-label="Chart range">${RANGES.map(([k, l]) => `<label><input type="radio" name="range" value="${k}" ${k === range ? 'checked' : ''}><span>${l}</span></label>`).join('')}</div>
+    ${box.length ? '' : '<p class="small muted">No boxing sessions in this range. Pick a longer one.</p>'}
     <section class="card"><h3>Overall score</h3><div id="c-overall"></div></section>
     <section class="card"><h3>Punches per minute</h3><div id="c-ppm"></div></section>
     <section class="card"><h3>Guard up %</h3><div id="c-guard"></div></section>
@@ -272,9 +280,10 @@ function charts(el, app) {
     charts(el, app);
   }));
   lineChart($('#c-overall'), pts((s) => s.scores?.overall), { max: 100, label: 'Overall score' });
-  lineChart($('#c-ppm'), pts((s) => outputPpm(s)), { label: 'Punches per minute' });
+  lineChart($('#c-ppm'), pts((s) => outputPpm(s), punchCountOk), { label: 'Punches per minute' });
   if ($('#c-speed')) lineChart($('#c-speed'), pts((s) => (s.form?.speed != null ? speedIn(s.form.speed, state.profile.unit) : null)), { label: 'Hand speed' });
   lineChart($('#c-guard'), pts((s) => s.form?.guard), { max: 100, unit: '%', target: TARGETS.guard, label: 'Guard up percent' });
   lineChart($('#c-stance'), pts((s) => s.form?.stance), { max: 100, unit: '%', target: TARGETS.stance, label: 'Stance percent' });
   lineChart($('#c-weeks'), weeks, { unit: ' min', label: 'Minutes per week' });
+  $$('input[name=range]', el).forEach((r) => r.addEventListener('change', () => { range = r.value; charts(el, app); }));
 }

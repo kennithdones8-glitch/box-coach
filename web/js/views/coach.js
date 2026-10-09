@@ -4,7 +4,7 @@ import { AREAS, TARGETS, INSIGHTS } from '../coach.js';
 import { memoryTrace, rankProblems, priorities } from '../engine.js';
 import { startHypothesis, evaluateHypothesis } from '../hypotheses.js';
 import * as store from '../store.js';
-import { $, $$, esc, shortDate, subnav, subOf, toast, opt, scoreClass, pageHead } from '../ui.js';
+import { $, $$, esc, shortDate, subnav, subOf, toast, opt, scoreClass, pageHead, applyTheme } from '../ui.js';
 import { aiKey, aiModel, setAi, AI_MODELS } from '../aicheck.js';
 import { buildBugReport } from '../bugreport.js';
 import { EQUIPMENT } from '../coachme.js';
@@ -309,6 +309,7 @@ function settings(el, app) {
     <section class="card">
       <form id="profile" class="form">
         <details class="set-group" open><summary>You</summary>
+        <fieldset><legend>Look</legend><div class="seg wide" role="radiogroup" aria-label="Look">${[['dark', 'Dark'], ['light', 'Light'], ['auto', 'Match phone']].map(([k, l]) => `<label><input type="radio" name="theme" value="${k}" ${(st.theme || 'dark') === k ? 'checked' : ''}><span>${l}</span></label>`).join('')}</div></fieldset>
         <label class="switch"><input type="checkbox" name="simple" ${st.simple ? 'checked' : ''}> <span>Simple mode: just Today, Train and Progress</span></label>
         <label>Name<input name="name" value="${esc(profile.name)}" maxlength="40" placeholder="Optional"></label>
         <div class="row2">
@@ -427,12 +428,18 @@ function settings(el, app) {
     // Never asked and nothing ticked: leave it unset, so the plan stays as it was.
     const own = [...f.querySelectorAll('[name=own]:checked')].map((x) => x.value);
     if (own.length || profile.equipment) app.state.profile.equipment = own;
-    app.state.settings = { ...st, simple: f.simple.checked, voice: f.voice.checked, voiceName: f.voiceName.value, voiceStyle: f.voiceStyle.value, cues: f.cues.checked, combos: f.voiceStyle.value === 'coach' || f.combos.checked, comboInterval: +f.comboInterval.value };
+    app.state.settings = { ...st, theme: f.theme.value, simple: f.simple.checked, voice: f.voice.checked, voiceName: f.voiceName.value, voiceStyle: f.voiceStyle.value, cues: f.cues.checked, combos: f.voiceStyle.value === 'coach' || f.combos.checked, comboInterval: +f.comboInterval.value };
     app.rebuildPlan();
     app.persist();
     toast('Saved.');
     if (f.simple.checked !== !!st.simple) app.rerender(); // tabs change with simple mode
   });
+  // The look changes straight away (and is kept without pressing Save).
+  $$('input[name=theme]', el).forEach((r) => r.addEventListener('change', () => {
+    app.state.settings.theme = r.value;
+    applyTheme(r.value);
+    app.persist();
+  }));
   $('#aiForm', el).addEventListener('submit', (e) => {
     e.preventDefault();
     const key = e.target.key.value.trim();
