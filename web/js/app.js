@@ -55,7 +55,7 @@ function persist() {
   if (!store.save(state)) toast('Could not save — storage is full or blocked.');
 }
 
-export const APP_VERSION = '2026.10.09-7';
+export const APP_VERSION = '2026.10.09-8';
 
 const app = {
   version: APP_VERSION,
@@ -77,6 +77,8 @@ const app = {
     startSession({ type: 'shadow', rounds: 1, roundSec: p.totalSec, restSec: 0, tracking: 'camera', combos: false, constraints: false, focus: null, test: p.steps });
   },
   // Defense drill: slips, rolls and blocks called out and checked by the camera (see defense.js).
+  // A punch drill from the Punches screen: 3 × 2 min, the coach calls only that drill's combos.
+  startDrill: (punch, drill) => startSession({ type: 'shadow', rounds: 3, roundSec: 120, restSec: 45, tracking: state.settings.tracking === 'none' ? 'none' : 'camera', combos: true, comboLevel: 1, constraints: false, focus: null, callList: drill.calls, drill: { punch, name: drill.name } }),
   startDefense: () => startSession({ type: 'shadow', rounds: 3, roundSec: 120, restSec: 30, tracking: 'camera', combos: false, constraints: false, focus: null, defense: true }),
   showSummary: (s) => { s.scores = scoreSession(s, state.profile); renderSummary(s); },
   // Open the live-session setup with your combos (or just some of them) being called.
@@ -98,6 +100,7 @@ const mods = {
   coach: lazy(() => import('./views/coach.js')),
   video: lazy(() => import('./views/video.js').then((m) => { videoMod = m; return m; })),
   study: lazy(() => import('./views/study.js')),
+  punches: lazy(() => import('./views/punches.js')),
 };
 let videoMod = null;
 const videoBusy = () => videoMod?.videoBusy() ?? false;
@@ -112,6 +115,7 @@ const routes = {
   log: () => location.replace(`#progress/history${location.hash.split('/')[1] ? `/${location.hash.split('/')[1]}` : ''}`),
   boxer: () => location.replace(`#progress/${location.hash.split('/')[1] || 'skills'}`),
   coach: () => show('coach', (m) => m.renderCoach(view, app)), coachme: () => show('coachme', (m) => m.renderCoachMe(view, app)),
+  punches: () => show('punches', (m) => m.renderPunches(view, app)),
   // A friend's shared stats link: keep their card, then show you side by side.
   friend: () => {
     const card = readCard(location.hash.split('/')[1] || '');
@@ -905,7 +909,8 @@ function scheduleCombos(rp) {
     }
     const level = live.plan.comboLevel;
     const mine = level === 'only' ? state.combos.filter((x) => live.plan.comboIds?.includes(x.id)) : state.combos;
-    const useMine = mine.length && (level === 'mine' || level === 'only' || (level === 'mix' && Math.random() < 0.5));
+    const list = live.plan.callList; // a punch drill (Punches screen): only its calls
+    const useMine = !list?.length && mine.length && (level === 'mine' || level === 'only' || (level === 'mix' && Math.random() < 0.5));
     let tokens = null, text, speech;
     // After a hard round the adjuster may cap combos at two punches; try a few picks to respect it.
     const fits = (tk) => !live.maxLen || !tk || tk.filter((x) => /^[1-6]b?$/.test(x)).length <= live.maxLen;
@@ -916,7 +921,8 @@ function scheduleCombos(rp) {
         tokens = pick.tokens;
         text = null;
       } else {
-        if (c?.combos) text = c.combos[Math.floor(Math.random() * c.combos.length)];
+        if (list?.length) text = list[Math.floor(Math.random() * list.length)];
+        else if (c?.combos) text = c.combos[Math.floor(Math.random() * c.combos.length)];
         else text = nextCombo(live.maxLen ? 1 : typeof level === 'number' ? level : 3, live.plan.focus);
         tokens = parseCombo(text);
       }
@@ -1088,6 +1094,7 @@ function buildSession(l, { test }) {
     test,
     spot: l.analyzer?.sig ? { ...l.analyzer.sig } : undefined, // where the camera was
     workout: l.plan.workout || undefined,
+    drill: l.plan.drill || undefined, // a punch drill: which punch and drill, so its effect can be followed
     defense: l.plan.defense && l.defRounds.length ? defenseSummary(l.defRounds) : undefined,
     adjustments: l.adjustments.length ? l.adjustments : undefined,
     rpe: 7, notes: '',
@@ -1214,6 +1221,7 @@ const TEST_NAMES = { jab: 'Jabs', cross: 'Crosses', leadHook: 'Lead hooks', rear
 function sessionName(s) {
   if (s.test) return 'Punch test';
   if (s.defense) return 'Defense drill';
+  if (s.drill) return `Drill: ${s.drill.name}`;
   const w = s.workout && allWorkouts(state.profile).find((x) => x.id === s.workout);
   return w ? w.name : ALL_TYPES[s.type] || s.type;
 }
