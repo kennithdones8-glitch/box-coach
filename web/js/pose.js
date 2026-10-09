@@ -115,8 +115,8 @@ export function drawGloves(g, pts, w, h, { dim = false, px = 1 } = {}) {
 }
 
 // Who's being followed, drawn over the camera or a video: a ring on the floor under their feet
-// (like a player marker in a game), the gloves in colour (green = up at guard, red = dropped) and
-// a tag above the head. style: 'me' (the boxer being followed), 'pick' (tap to choose: dashed
+// (gold, like a player marker in a game) and the gloves in colour (green = up at guard, red =
+// dropped); while choosing who to follow, a tag above the head. style: 'me' (the boxer being followed), 'pick' (tap to choose: dashed
 // ring) or 'other' (someone else in shot: nothing drawn). label: the tag ('You', 'Tap') or none.
 const rings = new WeakMap(); // last ring per canvas, so it glides instead of jittering
 export function drawBody(g, pts, w, h, { style = 'me', label = '' } = {}) {
@@ -151,11 +151,11 @@ export function drawBody(g, pts, w, h, { style = 'me', label = '' } = {}) {
     g.beginPath();
     g.ellipse(ring.x, ring.y, ring.rx, ry, 0, 0, Math.PI * 2);
     if (style === 'me') {
-      g.fillStyle = 'rgba(255,70,85,0.22)';
+      g.fillStyle = 'rgba(255,196,0,0.22)';
       g.fill();
-      g.shadowColor = 'rgba(255,70,85,0.8)';
+      g.shadowColor = 'rgba(255,196,0,0.8)';
       g.shadowBlur = 6 * px;
-      g.strokeStyle = '#ff4655';
+      g.strokeStyle = '#ffc400';
     } else {
       g.setLineDash([6 * px, 5 * px]);
       g.strokeStyle = 'rgba(255,255,255,0.9)';

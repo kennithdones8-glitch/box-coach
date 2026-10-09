@@ -205,9 +205,9 @@ function nextFrame(video, ms = 3000) {
   });
 }
 
-// Over the video: a ring on the floor under the boxer, their gloves and a "You" tag ("Boxer" for
-// a pro clip); nobody else is marked. While choosing, everyone gets a dashed ring and a "Tap" tag.
-function drawPeople(canvas, video, people, chosen, { picking = false, tag = 'You' } = {}) {
+// Over the video: a gold ring on the floor under the boxer and their gloves; nobody else is
+// marked. While choosing, everyone gets a dashed ring and a "Tap" tag.
+function drawPeople(canvas, video, people, chosen, { picking = false } = {}) {
   // Overlay at most 720 px too: a 4K canvas redrawn every frame is heavy on a phone.
   const k = Math.min(1, 720 / Math.max(video.videoWidth || 1, video.videoHeight || 1));
   const cw = Math.round(video.videoWidth * k), ch = Math.round(video.videoHeight * k);
@@ -217,7 +217,7 @@ function drawPeople(canvas, video, people, chosen, { picking = false, tag = 'You
   const crowd = people.length > 1;
   // Others first, so the boxer is drawn on top where they overlap.
   people.forEach((pts, i) => { if (i !== chosen) drawBody(g, pts, cw, ch, picking ? { style: 'pick', label: crowd ? 'Tap' : '' } : { style: 'other' }); });
-  if (chosen >= 0 && people[chosen]) drawBody(g, people[chosen], cw, ch, { style: 'me', label: crowd ? tag : '' });
+  if (chosen >= 0 && people[chosen]) drawBody(g, people[chosen], cw, ch, { style: 'me' });
 }
 
 async function analyse(file, video, opts, el, app) {
@@ -287,7 +287,6 @@ async function analyse(file, video, opts, el, app) {
       scanCosts.push(performance.now() - d0);
     }
     const target = opts.subject === 'pro' ? 'the boxer' : 'yourself';
-    const tag = opts.subject === 'pro' ? 'Boxer' : 'You';
     // Ask the boxer to tap themselves: at the start, and again if they're lost for a while.
     // Resolves to the person's index, or -1 for "not in shot" (again) or cancel.
     const askWho = (people, again) => {
@@ -324,7 +323,7 @@ async function analyse(file, video, opts, el, app) {
       tracker.lockOn(first[i], colors[i]);
       tracker.crowd = true;
       who = 'tap';
-      drawPeople(overlay, video, first, i, { tag });
+      drawPeople(overlay, video, first, i);
     } else if (first.length === 1) {
       tracker.lockOn(first[0], colors[0]);
     }
@@ -373,7 +372,7 @@ async function analyse(file, video, opts, el, app) {
       if (people.length > 1) multi++;
       frames++;
       analyzer.update(world || null, image, t);
-      drawPeople(overlay, video, people, idx, { tag });
+      drawPeople(overlay, video, people, idx);
       if (frames % 5 === 0) {
         $('#vidBar', el).style.width = `${Math.min(100, (t / durMs) * 100)}%`;
         status.textContent = `Analysing ${fmtT(t)} / ${fmtT(durMs)} · ${analyzer.events.filter((e) => e.kind === 'punch').length} punches · body found in ${Math.round((tracked / frames) * 100)}% of frames`;
