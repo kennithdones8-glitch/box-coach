@@ -38,6 +38,7 @@ import { allWorkouts } from './workouts.js';
 import { cardData, shareCard } from './sharecard.js';
 import { line as voiceLine, hasLine } from './voice.js';
 import { recentForm, sparkline } from './trends.js';
+import { punchStats } from './punchstats.js';
 import { renderCombos, comboHTML } from './views/combos.js';
 import { parseCombo, comboText, comboLabel, comboSpeech, comboKey, punchDigits, pickCombo, judgeCalls, sessionCombos } from './combos.js';
 
@@ -55,7 +56,7 @@ function persist() {
   if (!store.save(state)) toast('Could not save — storage is full or blocked.');
 }
 
-export const APP_VERSION = '2026.10.09-9';
+export const APP_VERSION = '2026.10.09-10';
 
 const app = {
   version: APP_VERSION,
@@ -235,11 +236,19 @@ function renderHome() {
   if (ws?.status === 'fast' || ws?.status === 'behind') notes.push(['⚖️', ws.status === 'fast' ? 'Cutting weight too fast' : 'Weight trending above target', ws.message, '#plan/weight']);
   notes.unshift(...safetyNotes({ standalone: isStandalone(), ios: isIOS(), sessions: sessions.length, lastBackup: state.settings.lastBackup }));
   const decay = ctx.decay[0];
-  if (decay) notes.push(['📉', decay.kind === 'fatigue' ? 'Breaks down under fatigue' : 'Technical weakness', decay.text, '#progress/analysis']);
+  // The one coaching insight that leads the screen: the punch most worth fixing (measured), else
+  // the technique that breaks down, else the second reason behind today's objective.
+  const ps = sessions.length ? punchStats(sessions, { days: 30 }) : null;
+  const pf = ps?.focus && ps.types.find((x) => x.type === ps.focus);
+  const insight = pf ? { label: 'Fix next', title: `${pf.name}: ${pf.focus[0].text.toLowerCase()}`, href: '#punches', cta: 'Drill it' }
+    : decay ? { label: decay.kind === 'fatigue' ? 'Breaks down under fatigue' : 'Technical weakness', title: decay.text, href: '#progress/analysis', cta: 'See why' }
+    : day.why[1] ? { label: 'Coach note', title: day.why[1], href: '#coachme', cta: null } : null;
+  if (decay && !(insight && insight.href === '#progress/analysis')) notes.push(['📉', decay.kind === 'fatigue' ? 'Breaks down under fatigue' : 'Technical weakness', decay.text, '#progress/analysis']);
 
   view.innerHTML = `
     ${pageHead('Today', { eyebrow: esc(dateLine) })}
-    ${fresh ? '' : `<a class="coachme-btn" href="#coachme"><span class="eyebrow">Next session · Coach me</span><b>${esc(day.objective)}</b><span class="go">Start session →</span></a>
+    ${fresh ? '' : `${todayHero({ day, rec, checkin, insight })}
+    ${showCheckin && !checkin ? `<section class="card" id="checkinCard"><div class="card-head"><h2>Morning check-in</h2><button class="linkbtn small" id="hideCheckin">Later</button></div>${checkinForm()}</section>` : ''}
     ${recapHTML()}`}
 
     ${!sessions.length && !profile.onboarded ? onboardHTML() : needsCameraSetup() ? setupHTML() : !sessions.length ? `
@@ -265,22 +274,10 @@ function renderHome() {
     </section>
     ${formHTML()}
 
-    <section class="card">
-      ${checkin ? `
-        <div class="ready-row">
-          <div class="ring ${rec.status}" style="--v:${rec.readiness ?? 0}"><b>${rec.readiness ?? '–'}</b></div>
-          <div class="ready-text"><b>${esc(STATUS_WORD[rec.status])}</b><span>${esc(rec.advice)}</span></div>
-          <button class="linkbtn small" id="redoCheckin">Edit</button>
-        </div>
-        ${rec.reasons.length ? `<details class="howto"><summary class="small">Why</summary><ul class="small">${rec.reasons.map((r) => `<li>${esc(r)}</li>`).join('')}</ul><p class="small muted">Load ${rec.load.acute} this week${rec.load.ratio != null ? ` · ${rec.load.ratio}× usual` : ''}</p></details>` : ''}`
-        : showCheckin ? `<div class="card-head"><h2>Morning check-in</h2><button class="linkbtn small" id="hideCheckin">Later</button></div>${checkinForm()}`
-        : '<button class="rowbtn" id="openCheckin" type="button"><b>Morning check-in</b><span>Sleep, soreness, motivation · 30 s</span><span class="chev">›</span></button>'}
-    </section>
-
-    <section class="card">
+    ${todays.length ? `<section class="card">
       <div class="card-head"><h2>Scheduled</h2><a href="#plan">Week →</a></div>
-      ${todays.map((it) => planItemHTML(it, status[it.id] === 'today' ? '' : status[it.id])).join('') || '<p class="muted small">Nothing scheduled today.</p>'}
-    </section>
+      ${todays.map((it) => planItemHTML(it, status[it.id] === 'today' ? '' : status[it.id])).join('')}
+    </section>` : ''}
 
     ${notes.length ? `
     <section class="card">
@@ -289,12 +286,13 @@ function renderHome() {
         <li><span class="row-ico">${ico}</span><a class="row-main" href="${href}" style="color:inherit;font-weight:400"><b>${esc(title)}</b><span>${esc(sub)}</span></a><span class="chev">›</span></li>`).join('')}</ul>
     </section>` : ''}`}`;
 
-  $('#openCheckin')?.addEventListener('click', () => { showCheckin = true; renderHome(); });
+  const openCheckin = () => { showCheckin = true; renderHome(); $('#checkinCard')?.scrollIntoView({ behavior: 'smooth', block: 'center' }); };
+  $('#openCheckin')?.addEventListener('click', openCheckin);
   $('#hideCheckin')?.addEventListener('click', () => { showCheckin = false; renderHome(); });
   $('#redoCheckin')?.addEventListener('click', () => {
     state.checkins = state.checkins.filter((c) => c.date !== today);
     persist();
-    renderHome();
+    openCheckin();
   });
   bindCheckin();
   $('#setupTest')?.addEventListener('click', () => app.startPunchTest());
@@ -319,6 +317,30 @@ function renderHome() {
     toast('Set up. Now the camera.');
     renderHome();
   });
+}
+
+// The top of Today: the objective and why, one action, readiness, and the coaching insight.
+function todayHero({ day, rec, checkin, insight }) {
+  const rest = /^Rest day|^Recover/.test(day.objective);
+  return `<section class="today-hero">
+    <div class="eyebrow">Today's objective</div>
+    <h2 class="th-obj">${esc(day.objective)}</h2>
+    ${day.why[0] ? `<p class="th-why">${esc(day.why[0])}</p>` : ''}
+    <a class="btn primary big block th-go" href="#coachme">${rest ? 'See today’s recovery →' : `Start session${day.minutes ? ` · ${day.minutes} min` : ''} →`}</a>
+    <div class="th-grid">
+      ${checkin ? `<button class="th-tile th-ready" type="button" id="redoCheckin" aria-label="Readiness ${rec.readiness ?? 'unknown'}, ${esc(STATUS_WORD[rec.status])}. Tap to redo the check-in.">
+          <span class="ring sm ${rec.status}" style="--v:${rec.readiness ?? 0}"><b>${rec.readiness ?? '–'}</b></span>
+          <span class="th-t"><span class="th-l">Readiness</span><b>${esc(STATUS_WORD[rec.status])}</b><span class="th-s">${esc(rec.advice)}</span></span>
+        </button>`
+        : `<button class="th-tile th-ready" type="button" id="openCheckin">
+          <span class="ring sm empty"><b>?</b></span>
+          <span class="th-t"><span class="th-l">Readiness</span><b>Check in</b><span class="th-s">Sleep, soreness, motivation · 30 s</span></span>
+        </button>`}
+      ${insight ? `<a class="th-tile th-insight" href="${insight.href}">
+          <span class="th-t"><span class="th-l">${esc(insight.label)}</span><b>${esc(insight.title)}</b>${insight.cta ? `<span class="th-s th-cta">${esc(insight.cta)} →</span>` : ''}</span>
+        </a>` : ''}
+    </div>
+  </section>`;
 }
 
 // Recent form: the latest well-measured numbers against your usual, with a small trend line.
@@ -421,6 +443,7 @@ function bindCheckin() {
     persist();
     const r = readinessOf(c, baselineHr(state.checkins));
     toast(`Readiness ${r}/100.`);
+    showCheckin = false;
     renderHome();
   });
 }
@@ -698,6 +721,7 @@ function showCue(text) {
   c.classList.remove('flash');
   void c.offsetWidth;
   c.classList.add('flash');
+  c.classList.toggle('on', !!text);
   audio.vibrate(80);
 }
 
@@ -705,6 +729,8 @@ function updateClock() {
   if (!live) return;
   const t = live.timer;
   $('#liveClock').textContent = fmt(Math.ceil(t.remainingMs / 1000));
+  // Last ten seconds of a round, the rest or the countdown: the clock turns to the phase colour.
+  $('#live').classList.toggle('ending', t.phase !== 'done' && t.remainingMs > 0 && t.remainingMs <= 10000);
   const total = ({ prep: t.prepSec, work: t.roundSec, rest: t.restSec }[t.phase] || 0) * 1000;
   $('#liveBar').style.width = total ? `${Math.max(0, Math.min(100, (100 * t.remainingMs) / total))}%` : '0%';
   const workMin = t.workMs / 60000;
@@ -791,6 +817,14 @@ function onPhase(phase, round) {
   top.classList.remove('phase-in');
   void top.offsetWidth;
   if (!quiet) top.classList.add('phase-in');
+  // A big one-second banner on each change, readable from across the room (it doesn't take taps).
+  const banner = $('#liveBanner');
+  banner.classList.remove('show');
+  if (!quiet) {
+    banner.textContent = { prep: 'Get ready', work: `Round ${round}`, rest: 'Rest', done: 'Time' }[phase];
+    void banner.offsetWidth;
+    banner.classList.add('show');
+  }
   $('#liveRound').textContent = phase === 'prep' ? 'Get ready' : `Round ${round} / ${t.rounds}`;
   // Full speed only while you're working; between rounds a few frames a second is enough
   // for the setup check, and saves battery and heat.
@@ -1018,6 +1052,10 @@ function scheduleBursts() {
 
 function teardownLive() {
   if (!live) return;
+  $('#live').classList.remove('paused', 'ending');
+  $('#livePause').textContent = 'Pause';
+  $('#liveCue').textContent = '';
+  $('#liveCue').classList.remove('on');
   takeBellsBack();
   live.timer?.stop();
   clearInterval(live.comboTimer);
@@ -1106,6 +1144,7 @@ $('#livePause').addEventListener('click', () => {
   if (!live?.timer) return;
   const p = live.timer.togglePause();
   $('#livePause').textContent = p ? 'Resume' : 'Pause';
+  $('#live').classList.toggle('paused', p);
   if (live.tracker) live.tracker.maxFps = p ? 3 : live.timer.phase === 'work' ? null : 6;
   if (p) audio.stopSpeech();
 });
