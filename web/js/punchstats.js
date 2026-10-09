@@ -163,3 +163,62 @@ export function drillsFor(type, focus = []) {
   const keys = focus.map((f) => f.key);
   return [...all].sort((a, b) => b.fixes.filter((k) => keys.includes(k)).length - a.fixes.filter((k) => keys.includes(k)).length);
 }
+
+// Did the drill work? For each drill you've practised, the numbers it targets in your other
+// training (drill sessions themselves are left out: slow, focused reps would flatter them),
+// before you started it against since. Nothing is called better or worse from fewer than two
+// well-measured sessions on each side.
+const DRILL_METRICS = {
+  rearDrop: { key: 'rearDrop', label: 'Rear hand drops on jabs', unit: '%', better: -1, min: 5 },
+  slowReturn: { key: 'returnMs', label: 'Hand back home', unit: ' ms', better: -1, min: 30 },
+  underused: { key: 'share', label: 'Share of your punches', unit: '%', better: 1, min: 3 },
+  slower: { key: 'speed', label: 'Speed', unit: ' m/s', better: 1, min: 0.3 },
+};
+function sideStats(sessions, type) {
+  const cam = sessions.filter(counted);
+  const total = cam.reduce((a, s) => a + TYPES.reduce((b, t) => b + (s.punches.byType[t] || 0), 0), 0);
+  const n = cam.reduce((a, s) => a + (s.punches.byType[type] || 0), 0);
+  const speeds = [];
+  for (const s of cam) for (const row of s.calib?.punches || []) if (DIGIT_TYPE[row[0]] === type && row[1] > 0 && row[1] < 14) speeds.push(row[1]);
+  const form = sessions.filter((s) => s.form && trackingOk(s) && !s.test);
+  const f = (k) => form.map((s) => s.form[k]).filter((v) => v != null && Number.isFinite(v));
+  const ret = f(LEAD.has(type) ? 'leadReturnMs' : 'rearReturnMs'), drop = f('rearDropPct');
+  return {
+    share: { v: total >= 30 ? Math.round((100 * n) / total) : null, n: cam.length },
+    speed: { v: speeds.length >= 5 ? r1(median(speeds)) : null, n: cam.length },
+    returnMs: { v: ret.length ? Math.round(avg(ret)) : null, n: ret.length },
+    rearDrop: { v: type === 'jab' && drop.length ? Math.round(avg(drop)) : null, n: drop.length },
+  };
+}
+export function drillProgress(sessions, { now = new Date() } = {}) {
+  const sorted = [...sessions].filter((s) => +new Date(s.date) <= +now).sort((a, b) => new Date(a.date) - new Date(b.date));
+  const drills = new Map();
+  for (const s of sorted) {
+    if (!s.drill?.name) continue;
+    const k = `${s.drill.punch}|${s.drill.name}`;
+    const d = drills.get(k) || { punch: s.drill.punch, name: s.drill.name, times: 0, first: s.date, last: s.date };
+    d.times++;
+    d.last = s.date;
+    drills.set(k, d);
+  }
+  const other = sorted.filter((s) => !s.drill);
+  return [...drills.values()].map((d) => {
+    const def = (PUNCH_DRILLS[d.punch] || []).find((x) => x.name === d.name);
+    const keys = [...new Set([...(def?.fixes || []), 'slowReturn', 'underused'])].filter((k) => DRILL_METRICS[k]);
+    const t0 = +new Date(d.first);
+    const before = other.filter((s) => { const t = +new Date(s.date); return t < t0 && t0 - t <= 60 * DAY; });
+    const after = other.filter((s) => +new Date(s.date) > t0);
+    const A = sideStats(before, d.punch), B = sideStats(after, d.punch);
+    const metrics = keys.map((k) => {
+      const m = DRILL_METRICS[k], a = A[m.key], b = B[m.key];
+      if (a.v == null && b.v == null) return null;
+      const enough = a.v != null && b.v != null && a.n >= 2 && b.n >= 2;
+      const diff = enough ? b.v - a.v : null;
+      const verdict = diff == null ? null : Math.abs(diff) < m.min ? 'same' : diff * m.better > 0 ? 'better' : 'worse';
+      return { key: k, label: m.label, unit: m.unit, before: a.v, after: b.v, nBefore: a.n, nAfter: b.n, verdict, main: def?.fixes?.[0] === k };
+    }).filter(Boolean).slice(0, 3);
+    // The drill's verdict comes from what it's meant to fix (else the first comparable number).
+    const lead = metrics.find((m) => m.main && m.verdict) || metrics.find((m) => m.verdict);
+    return { ...d, metrics, verdict: lead?.verdict || 'early', afterSessions: after.length, beforeSessions: before.length };
+  }).sort((a, b) => new Date(b.last) - new Date(a.last));
+}

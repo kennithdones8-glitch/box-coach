@@ -173,11 +173,11 @@ export function drawBody(g, pts, w, h, { style = 'me', label = '' } = {}) {
     g.font = `700 ${fs}px system-ui, -apple-system, sans-serif`;
     const tw = g.measureText(label).width, pad = fs * 0.6, bh = fs * 1.6;
     const x = head.x - tw / 2 - pad, y = head.y - r - bh - fs * 0.4;
-    g.fillStyle = style === 'me' ? '#ff4655' : 'rgba(20,20,24,0.75)';
+    g.fillStyle = style === 'me' ? '#f5b700' : 'rgba(20,20,24,0.75)';
     g.beginPath();
     g.roundRect ? g.roundRect(x, y, tw + pad * 2, bh, bh / 2) : g.rect(x, y, tw + pad * 2, bh);
     g.fill();
-    g.fillStyle = '#fff';
+    g.fillStyle = style === 'me' ? '#111214' : '#fff'; // dark on gold, white on the dark tag
     g.textBaseline = 'middle';
     g.fillText(label, x + pad, y + bh / 2);
     g.restore();

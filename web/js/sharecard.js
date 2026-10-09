@@ -30,7 +30,7 @@ export async function drawCard(canvas, d, iconUrl = 'icon.svg') {
   canvas.width = W; canvas.height = H;
   const g = canvas.getContext('2d');
   const bg = g.createLinearGradient(0, 0, W, H);
-  bg.addColorStop(0, '#1a0a0d'); bg.addColorStop(0.55, '#0b0b0d'); bg.addColorStop(1, '#000');
+  bg.addColorStop(0, '#1d1708'); bg.addColorStop(0.55, '#0b0b0d'); bg.addColorStop(1, '#000');
   g.fillStyle = bg; g.fillRect(0, 0, W, H);
   // A soft red glow behind the numbers.
   const glow = g.createRadialGradient(W * 0.5, H * 0.42, 40, W * 0.5, H * 0.42, W * 0.75);
@@ -63,7 +63,7 @@ export async function drawCard(canvas, d, iconUrl = 'icon.svg') {
   if (d.sub) { g.fillStyle = 'rgba(255,255,255,0.75)'; g.font = font(600, 44); g.fillText(d.sub, 90, y); y += 80; }
   for (const b of d.badges) { g.fillStyle = '#fff'; g.font = font(700, 44); g.fillText(b, 90, y); y += 70; }
   // Footer.
-  g.fillStyle = '#d42033'; g.fillRect(90, H - 230, 120, 8);
+  g.fillStyle = '#f5b700'; g.fillRect(90, H - 230, 120, 8);
   g.fillStyle = 'rgba(255,255,255,0.8)'; g.font = font(600, 40); g.fillText('Tracked with BoxCoach', 90, H - 150);
   g.fillStyle = 'rgba(255,255,255,0.5)'; g.font = font(500, 34); g.fillText('A boxing coach in your phone', 90, H - 95);
   return canvas;
