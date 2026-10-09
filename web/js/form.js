@@ -334,6 +334,7 @@ function emptyRound() {
     returnTimes: [], returnLead: [], returnRear: [], leadPunches: 0, rearDrops: 0,
     punchLog: [], leftCloser: 0, depthFrames: 0, speeds: [], defLog: [],
     feints: 0, feintSetups: 0, feintLog: [],
+    awayFrames: 0, faceFrames: 0, // facing away from the camera (filmed from behind)
   };
 }
 
@@ -457,14 +458,19 @@ export function roundMetrics(r) {
     feints: r.feints || 0,
     feintSetups: r.feintSetups || 0,
     feintsPerMin: r.t1 > r.t0 ? Math.round(((r.feints || 0) / ((r.t1 - r.t0) / 60000)) * 10) / 10 : null,
+    awayPct: r.faceFrames ? pct(r.awayFrames, r.faceFrames) : null,
   };
 }
+
+// Facing away from the camera. From behind, an arm reaching away from the lens looks bent in the
+// picture and the far hand is hidden: punch types, guard and hand return can't be read.
+export const awayFromCamera = (face) => !!face && face.z > 0.5;
 
 // Combine per-round metrics into a session-level summary, weighting by frames.
 export function combineRounds(rounds) {
   const valid = rounds.filter((r) => r.frames > 0);
   const out = { perRound: rounds };
-  const keys = ['guard', 'stance', 'crossedPct', 'narrowPct', 'widePct', 'blade', 'footwork', 'head', 'handReturnMs', 'leadReturnMs', 'rearReturnMs', 'rearDropPct', 'leftLeadPct', 'sidePct', 'headPerMin'];
+  const keys = ['guard', 'stance', 'crossedPct', 'narrowPct', 'widePct', 'blade', 'footwork', 'head', 'handReturnMs', 'leadReturnMs', 'rearReturnMs', 'rearDropPct', 'leftLeadPct', 'sidePct', 'headPerMin', 'awayPct'];
   for (const k of keys) {
     let sum = 0, w = 0;
     for (const r of valid) {
@@ -780,6 +786,8 @@ export class FormAnalyzer {
     this.image = image;
     const f = facing(world);
     if (f) this.face = this.face ? norm2({ x: this.face.x * 0.7 + f.x * 0.3, z: this.face.z * 0.7 + f.z * 0.3 }) : f;
+    // Filmed from behind: the face points away from the camera (depth grows away from it).
+    if (this.active && this.face) { r.faceFrames++; if (awayFromCamera(this.face)) r.awayFrames++; }
     this._trackSetup(image);
     for (const role of ['lead', 'rear']) this._trackHand(role, world, nose, t);
     this._flushPunches(t);
@@ -1173,7 +1181,8 @@ export class FormAnalyzer {
     this.round.speeds.push(h.peakSpeed);
     const r3 = (x) => Math.round(x * 1000) / 1000;
     this.event('punch', t, conf, {
-      type, role, vis, speed: h.peakSpeed, fwd, lat, baseKind: base.kind, afterFeint: setUp || undefined, setup: this.sig ? { ...this.sig } : null,
+      type, role, vis, speed: h.peakSpeed, fwd, lat, baseKind: base.kind, afterFeint: setUp || undefined,
+      typeUnsure: awayFromCamera(this.face) || undefined, // thrown with your back to the camera setup: this.sig ? { ...this.sig } : null,
       f: { angle: h.peakAngle, ext: h.peakExt, rise: h.maxRise, path: h.path.map(([a, b]) => [r3(a), r3(b)]), disp: h.peakDisp.map(r3) },
       i2: h.i2 ? { ext: r3(h.i2.ext), angle: Math.round(h.i2.maxAngle), fore: r3(h.i2.fore), elbUp: r3(h.i2.elbUp), dx: r3(h.i2.dx), dy: r3(h.i2.dy), vis: r3(h.i2.vis) } : null,
       face: face ? face.map(r3) : null,

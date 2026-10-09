@@ -78,6 +78,8 @@ export function outputPpm(session) {
 // Whether a session's camera numbers can be trusted: the body was found in most frames, and
 // (video) the boxer wasn't lost or hidden for much of it.
 export function trackingOk(s) {
+  // Filmed from behind much of the time: guard, hand return and punch types can't be read.
+  if ((s?.form?.awayPct ?? 0) >= 40) return false;
   const c = s?.calib;
   if (!c) return true;
   if (c.frames && c.tracked != null && c.tracked / c.frames < 0.7) return false;
