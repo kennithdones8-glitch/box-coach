@@ -47,8 +47,9 @@ needs the Apple developer account first (below); then the workflow can be added.
    on the listing (Google shows it publicly). Use a separate address for the app, not a personal
    one, and add it to `web/support.html`.
 4. **Store listing**: the text below; category Health & Fitness; age rating 4+ / Everyone.
-5. **Screenshots**: `store/screenshots/` covers Today, Coach me, a punch test result, Skills and
-   Progress. A shot of a live round with the camera is worth adding from a real phone.
+5. **Screenshots**: `store/screenshots/` has six poster-style shots (headline over the app in a
+   phone frame): Today, Punches, Programs, Drills, Fuel and Progress. A shot of a live round with
+   the camera is worth adding from a real phone.
 6. **Privacy answers**: Apple "Data not collected"; Google Data safety "No data collected or
    shared". (The optional Claude check sends frames only with the user's own key, on request.)
 7. **Test on real phones** via TestFlight (iPhone) and an internal testing track (Android).
@@ -70,6 +71,11 @@ Prop your phone up, train, and BoxCoach watches.
 • Learns you: a 3-minute punch test shows what it read right and wrong, and tunes it to your punches
   and your camera spot.
 • Progress: guard, output, punch mix and habits over weeks, and a weekly recap.
+• 14 pro programs, from Jab Lab to a 6-week Fight Camp, plus a library of short drills. Add the
+  sessions to your calendar with reminders.
+• Fuel: log meals and water, get calorie and protein targets from your weight and training, and a
+  grade for your pace through the day with ideas for what to eat next.
+• XP, levels and a day streak to keep you coming back.
 • Round timer, combo calls, fight simulations, sparring and coach notes in one log.
 
 Private by design: no account, no ads, no tracking. The camera is read on your phone, video is never

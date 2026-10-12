@@ -41,6 +41,7 @@ import { recentForm, sparkline } from './trends.js';
 import { punchStats } from './punchstats.js';
 import { programById, programProgress, stepLabel, stepMinutes, suggestProgram } from './programs.js';
 import { renderFuel, fuelTile } from './views/fuel.js';
+import { sessionXp, xpTotal, levelOf, dayStreak } from './xp.js';
 import { renderCombos, comboHTML } from './views/combos.js';
 import { parseCombo, comboText, comboLabel, comboSpeech, comboKey, punchDigits, pickCombo, judgeCalls, sessionCombos } from './combos.js';
 
@@ -58,7 +59,7 @@ function persist() {
   if (!store.save(state)) toast('Could not save — storage is full or blocked.');
 }
 
-export const APP_VERSION = '2026.10.12-1';
+export const APP_VERSION = '2026.10.12-2';
 
 const app = {
   version: APP_VERSION,
@@ -282,6 +283,7 @@ function renderHome() {
   view.innerHTML = `
     ${pageHead('Today', { eyebrow: esc(dateLine) })}
     ${fresh ? '' : `${todayHero({ day, rec, checkin, insight })}
+    ${xpHTML()}
     ${programHTML()}
     ${showCheckin && !checkin ? `<section class="card" id="checkinCard"><div class="card-head"><h2>Morning check-in</h2><button class="linkbtn small" id="hideCheckin">Later</button></div>${checkinForm()}</section>` : ''}
     ${recapHTML()}`}
@@ -379,6 +381,24 @@ function todayHero({ day, rec, checkin, insight }) {
           <span class="th-t"><span class="th-l">${esc(insight.label)}</span><b>${esc(insight.title)}</b>${insight.cta ? `<span class="th-s th-cta">${esc(insight.cta)} →</span>` : ''}</span>
         </a>` : ''}
       ${fuelTile(state, app.trainingToday())}
+    </div>
+  </section>`;
+}
+
+// Level, XP to the next one, the day streak and this week's training days.
+function xpHTML() {
+  if (!state.sessions.length) return '';
+  const lv = levelOf(xpTotal(state.sessions, state.food));
+  const streak = dayStreak(state.sessions);
+  const wk = weekSummary(state.sessions);
+  const goal = state.profile.weeklyGoal;
+  return `<section class="card xp-card">
+    <div class="xp-row">
+      <span class="xp-badge" aria-label="Level ${lv.level}"><small>LV</small>${lv.level}</span>
+      <div class="xp-main"><b>${esc(lv.name)}</b><span class="small muted">${lv.xp.toLocaleString()} XP${lv.next ? ` · ${(lv.next - lv.xp).toLocaleString()} to ${esc(levelOf(lv.next).name)}` : ' · top level'}</span>
+        <div class="bar thin"><div style="width:${lv.pct}%"></div></div></div>
+      <div class="xp-stat" title="Days in a row you trained"><b class="num">${streak ? '🔥' : ''}${streak}</b><span>day streak</span></div>
+      <span class="ring sm wk-ring" style="--v:${Math.min(100, (wk.days / goal) * 100)}" title="Training days this week"><b>${wk.days}<small>/${goal}</small></b></span>
     </div>
   </section>`;
 }
@@ -1388,6 +1408,7 @@ function renderSummary(session) {
     <section class="card complete">
       <div class="eyebrow">Session complete · ${fmt(session.workSec)} of work</div>
       <h1>${esc(sessionName(session))}</h1>
+      ${(() => { const before = levelOf(xpTotal(state.sessions, state.food)); const after = levelOf(before.xp + sessionXp(session)); return `<div class="xp-earned"><b>+${sessionXp(session)} XP</b>${after.level > before.level ? ` <span>Level up: ${esc(after.name)}! 🎉</span>` : after.next ? ` <span class="muted">${(after.next - after.xp).toLocaleString()} to ${esc(levelOf(after.next).name)}</span>` : ''}</div>`; })()}
       ${events.newPRs.length ? `<div class="pr">🏆 New personal record: ${events.newPRs.map(esc).join(', ')}</div>` : ''}
       ${(() => { const nb = newBadges(state.sessions, session, state.profile); return nb.length ? `<div class="pr">🏅 New badge${nb.length > 1 ? 's' : ''}: ${nb.map((b) => `${b.icon} ${esc(b.name)}`).join(' · ')}</div>` : ''; })()}
       ${events.resolved.length ? `<div class="pr">✅ Habit fixed: ${events.resolved.map((k) => esc(INSIGHTS[k].text)).join(' ')}</div>` : ''}
@@ -1492,7 +1513,10 @@ function saveSession(session) {
     state.coach = applyEvaluation(state.coach, ev, session.date);
   }
   state.memory = memory;
+  const lvl = levelOf(xpTotal(state.sessions, state.food)).level;
   state.sessions.push(session);
+  const up = levelOf(xpTotal(state.sessions, state.food));
+  if (up.level > lvl) setTimeout(() => toast(`Level up: ${up.name}! 🎉`), 1600);
   state.sessions.sort((a, b) => new Date(a.date) - new Date(b.date));
   store.trimDiagnostics(state.sessions);
   persist();
