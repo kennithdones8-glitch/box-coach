@@ -25,11 +25,12 @@ export function defaultState() {
     checkins: [], // morning readiness: sleep, soreness, motivation, resting HR
     paused: [], // priorities parked to avoid skill interference
     friends: [], // friends' stat cards from shared links (friends.js)
+    food: [], // Fuel log: { id, day, at, name, kcal, protein } or { ..., water: ml } (nutrition.js)
     coach: { equipment: [], levels: {}, overrides: [], assigned: {} }, // Coach me: drill ladder, coach overrides, gear
   };
 }
 
-const ARRAYS = ['sessions', 'weights', 'observations', 'patterns', 'combos', 'refVideos', 'references', 'decisions', 'hypotheses', 'checkins', 'paused', 'friends'];
+const ARRAYS = ['sessions', 'weights', 'observations', 'patterns', 'combos', 'refVideos', 'references', 'decisions', 'hypotheses', 'checkins', 'paused', 'friends', 'food'];
 
 function merge(base, data) {
   // Earlier versions defaulted to kg; switch to lb if no weights were logged in kg yet.

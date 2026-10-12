@@ -5,7 +5,7 @@ import { PUNCH_DIGIT, streamFrom } from './form.js';
 export { streamFrom };
 
 export const PUNCH_WORDS = { 1: 'Jab', 2: 'Cross', 3: 'Hook', 4: 'Rear hook', 5: 'Uppercut', 6: 'Rear uppercut' };
-export const DEFENSE = ['slip', 'roll', 'pull', 'pivot', 'step out', 'feint', 'pause'];
+export const DEFENSE = ['slip', 'roll', 'pull', 'parry', 'pivot', 'step out', 'feint', 'pause'];
 
 // Quick adds. The last three are from your pad round (the last one is the whole round).
 export const STARTERS = [
