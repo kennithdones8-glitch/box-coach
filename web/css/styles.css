@@ -988,3 +988,24 @@ body.in-live .toast { bottom: auto; top: calc(env(safe-area-inset-top) + 8px); }
 .food-list .grow, .log-list .grow { display: flex; flex-direction: column; min-width: 0; flex: 1; }
 .custom-food { margin-top: 10px; }
 .custom-food summary { cursor: pointer; color: var(--accent); font-weight: 700; font-size: 0.9rem; padding: 6px 0; }
+
+/* XP and levels */
+.xp-card { padding: 12px 14px; }
+.xp-row { display: flex; align-items: center; gap: 12px; }
+.xp-badge { flex: none; width: 48px; height: 52px; display: grid; place-items: center; align-content: center; font-family: var(--num); font-weight: 700; font-size: 1.6rem; line-height: 0.9; color: var(--accent-ink);
+  background: linear-gradient(160deg, #ffd54a, var(--accent-fill) 55%, #b98500); clip-path: polygon(50% 0, 100% 22%, 100% 78%, 50% 100%, 0 78%, 0 22%); }
+.xp-badge small { font-size: 0.62rem; letter-spacing: 0.1em; }
+.xp-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.xp-main b { font-family: var(--num); font-size: 1.3rem; text-transform: uppercase; line-height: 1; }
+.xp-main .bar { margin-top: 6px; }
+.xp-stat { flex: none; display: flex; flex-direction: column; align-items: center; }
+.xp-stat b { font-size: 1.4rem; line-height: 1; }
+.xp-stat span { font-size: 0.6rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+.wk-ring b { font-size: 1.05rem; }
+.wk-ring small { font-size: 0.7rem; color: var(--muted); }
+.xp-earned { margin: 6px 0 4px; font-size: 0.92rem; }
+.xp-earned b { font-family: var(--num); font-size: 1.3rem; color: var(--accent); }
+@media (max-width: 360px) { .xp-stat span { font-size: 0.55rem; } .xp-row { gap: 8px; } }
+.remind summary { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; cursor: pointer; list-style: none; }
+.remind summary::-webkit-details-marker { display: none; }
+.remind .btn { margin: 0; }

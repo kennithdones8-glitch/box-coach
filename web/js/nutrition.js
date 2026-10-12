@@ -48,16 +48,24 @@ export const FOOD_CATS = ['Protein', 'Carbs', 'Meals', 'Snacks'];
 // Boxing burns about MET 7.8: kcal/min ≈ 7.8 × 3.5 × kg / 200.
 const trainKcal = (kg, minutes) => Math.round(minutes * 0.1365 * kg);
 
+// Resting needs (Mifflin-St Jeor) when height, age and sex are known.
+export function bmr(kg, body) {
+  if (!kg || !(body?.height > 0) || !(body?.age > 0) || !['m', 'f'].includes(body?.sex)) return null;
+  return Math.round(10 * kg + 6.25 * body.height - 5 * body.age + (body.sex === 'm' ? 5 : -161));
+}
+
 // goal: 'cut' | 'keep' | 'gain'. trainMin: today's training (done, or planned if not done yet).
-export function targets({ kg, trainMin = 0, goal = 'keep' }) {
+// body: { height (cm), age, sex: 'm' | 'f' } for a closer estimate; without it, 30 kcal per kg.
+export function targets({ kg, trainMin = 0, goal = 'keep', body = null }) {
   if (!kg) return null;
-  const base = 30 * kg; // a day's needs for an active adult, before training
+  const rest = bmr(kg, body);
+  const base = rest ? rest * 1.4 : 30 * kg; // a day's needs before training (everyday moving included)
   const adjust = goal === 'cut' ? -Math.min(500, 0.15 * base) : goal === 'gain' ? 300 : 0;
   return {
     kcal: Math.round((base + trainKcal(kg, trainMin) + adjust) / 10) * 10,
     protein: Math.round(kg * (goal === 'cut' ? 2.2 : 2.0)),
     water: Math.round((kg * 35 + trainMin * 12) / 50) * 50, // ml
-    trainMin, goal,
+    trainMin, goal, exact: !!rest,
   };
 }
 
@@ -120,4 +128,43 @@ export function gradeDay(entries, tg, { now = new Date(), trainedToday = false, 
     : worst.key === 'kcal' ? (got.meals <= 1 ? 'Light so far: round it out' : 'Under-fuelled for today')
     : 'Drink some water';
   return { score, letter, rows, headline, tips: tips.slice(0, 3), part, pace, got, want };
+}
+
+// What to eat next: one or two foods that best fit the next meal's share of what's left today.
+// mealsLeft: roughly how many meals are left (from the time of day).
+export function mealIdeas(got, tg, { pace = 0.5, trainSoon = false, n = 3 } = {}) {
+  if (!tg) return [];
+  const mealsLeft = Math.max(1, Math.ceil((1 - pace) * 4));
+  const leftK = tg.kcal - got.kcal, leftP = tg.protein - got.protein;
+  if (leftK < 120 && leftP < 10) return [];
+  const want = { kcal: Math.max(150, leftK / mealsLeft), protein: Math.max(8, leftP / mealsLeft) };
+  const foods = FOODS.filter((f) => f.id !== 'soda');
+  const options = [];
+  for (let i = 0; i < foods.length; i++) {
+    options.push([foods[i]]);
+    for (let j = i + 1; j < foods.length; j++) if (foods[i].cat !== foods[j].cat && foods[i].cat !== 'Meals' && foods[j].cat !== 'Meals') options.push([foods[i], foods[j]]);
+  }
+  const scored = options.map((fs) => {
+    const kcal = fs.reduce((a, f) => a + f.kcal, 0), protein = fs.reduce((a, f) => a + f.protein, 0);
+    let score = Math.abs(kcal - want.kcal) / want.kcal + 1.3 * Math.abs(protein - want.protein) / want.protein;
+    if (kcal > Math.max(leftK, 150) * 1.1) score += 2; // never more than the rest of the day
+    if (trainSoon && !fs.some((f) => f.cat === 'Carbs')) score += 0.4; // carbs before training
+    return { foods: fs, kcal, protein, score };
+  }).sort((a, b) => a.score - b.score);
+  const out = [], used = new Set();
+  for (const o of scored) {
+    if (o.foods.some((f) => used.has(f.id))) continue;
+    o.foods.forEach((f) => used.add(f.id));
+    out.push({ name: o.foods.map((f) => f.name).join(' + '), kcal: o.kcal, protein: o.protein, ids: o.foods.map((f) => f.id) });
+    if (out.length >= n) break;
+  }
+  return out;
+}
+
+// Fight-week notes (days until the fight, 0 = fight day). Safe, general guidance only.
+export function fightWeek(days) {
+  if (days == null || days < 0 || days > 7) return null;
+  if (days === 0) return ['Fight day: eat familiar food you know sits well, carbs 3–4 hours before, and sip water.', 'Nothing new today.'];
+  if (days === 1) return ['Weigh-in day or the day before: follow the plan you agreed with your coach.', 'After weighing in, rehydrate steadily and eat familiar carbs and some protein.', 'Never cut water or use saunas or sweat suits without a coach who knows what they’re doing.'];
+  return ['Fight week: keep protein steady and eat carbs for energy, as training gets lighter.', 'If you’re over weight, talk to your coach now: a little at a time beats a big cut at the end.', 'Drink normally. Don’t try anything new this week.'];
 }

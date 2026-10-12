@@ -100,3 +100,57 @@ test('fuel grade: on pace, not the full day', () => {
   assert.equal(over.rows.find((r) => r.key === 'kcal').status, 'over');
   assert.match(over.tips.join(' '), /cut/);
 });
+
+import { bmr, mealIdeas, fightWeek, FOODS as F2 } from '../web/js/nutrition.js';
+import { sessionXp, xpTotal, levelOf, dayStreak, LEVELS } from '../web/js/xp.js';
+import { programIcs, sessionDates } from '../web/js/reminders.js';
+
+test('fuel: height, age and sex give a closer estimate; meal ideas fit what is left', () => {
+  assert.equal(bmr(80, { height: 180, age: 30, sex: 'm' }), 1780);
+  assert.equal(bmr(80, { skipped: true }), null);
+  const exact = targets({ kg: 80, body: { height: 180, age: 30, sex: 'm' } });
+  assert.ok(exact.exact && Math.abs(exact.kcal - 2490) <= 10);
+  const tg = targets({ kg: 80 });
+  const ideas = mealIdeas({ kcal: 600, protein: 20 }, tg, { pace: 0.5 });
+  assert.equal(ideas.length, 3);
+  for (const m of ideas) {
+    assert.ok(m.ids.every((id) => F2.some((f) => f.id === id)));
+    assert.ok(m.protein >= 20, `${m.name}: protein-heavy when protein is behind`);
+  }
+  assert.equal(new Set(ideas.flatMap((m) => m.ids)).size, ideas.flatMap((m) => m.ids).length, 'no food repeated');
+  assert.deepEqual(mealIdeas({ kcal: tg.kcal, protein: tg.protein }, tg, { pace: 0.9 }), [], 'nothing left to eat');
+  assert.equal(fightWeek(10), null);
+  assert.match(fightWeek(1).join(' '), /coach/);
+});
+
+test('XP and levels come from sessions; day streak counts days in a row', () => {
+  assert.equal(sessionXp({ completedRounds: 3 }), 50);
+  assert.equal(sessionXp({ completedRounds: 3, program: { id: 'x' } }), 90);
+  assert.equal(levelOf(0).name, 'Rookie');
+  assert.equal(levelOf(850).name, 'Amateur');
+  assert.equal(levelOf(850).pct, 6);
+  assert.equal(levelOf(99999).next, null);
+  assert.equal(LEVELS.length, 9);
+  const food = [1, 2, 3].map(() => ({ day: '2026-10-10' }));
+  assert.equal(xpTotal([{ completedRounds: 3 }], food), 65, 'a day of food logging adds a little');
+  const now = new Date(2026, 9, 12, 20);
+  const at = (d) => new Date(2026, 9, d, 18).toISOString();
+  assert.equal(dayStreak([at(10), at(11), at(12)].map((date) => ({ date })), now), 3);
+  assert.equal(dayStreak([at(10), at(11)].map((date) => ({ date })), now), 2, 'not trained yet today: the streak still stands');
+  assert.equal(dayStreak([at(9), at(11)].map((date) => ({ date })), new Date(2026, 9, 13, 9)), 0);
+});
+
+test('program reminders: a calendar event per remaining session on the chosen days', () => {
+  const from = new Date(2026, 9, 12, 19, 0); // Monday 7 pm, after 6 pm
+  const ds = sessionDates(3, [0, 2, 4], '18:00', from);
+  assert.deepEqual(ds.map((d) => d.getDate()), [14, 16, 19], 'Monday 6 pm has passed: Wed, Fri, next Mon');
+  const p = PROGRAMS.find((x) => x.id === 'jab-lab');
+  const { ics, count } = programIcs(p, 2, { days: [0, 2, 4], time: '18:00', from, url: 'https://example.org/app/', minutes: () => 8 });
+  assert.equal(count, 4);
+  assert.equal((ics.match(/BEGIN:VEVENT/g) || []).length, 4);
+  assert.equal((ics.match(/BEGIN:VALARM/g) || []).length, 4);
+  assert.match(ics, /DTSTART:20261014T180000/);
+  assert.match(ics, /DTEND:20261014T181000/, 'at least 10 minutes long');
+  assert.ok(ics.split('\r\n').every((l) => Array.from(l).length <= 75), 'lines folded');
+  assert.ok(ics.startsWith('BEGIN:VCALENDAR') && ics.trimEnd().endsWith('END:VCALENDAR'));
+});

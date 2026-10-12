@@ -1,7 +1,8 @@
 // Train → Programs and Train → Drills: pro-built multi-week plans, and a library of short drills.
 import { PROGRAMS, PROGRAM_CATS, programById, programProgress, stepLabel, stepMinutes, suggestProgram } from '../programs.js';
 import { allDrills, DRILL_CATS, CAT_ICON } from '../drills.js';
-import { $$, esc } from '../ui.js';
+import { $, $$, esc, toast } from '../ui.js';
+import { programIcs, DEFAULT_DAYS } from '../reminders.js';
 
 let progCat = 'all';
 let drillCat = 'all';
@@ -111,6 +112,7 @@ function renderProgram(el, app, p) {
         <button class="btn ghost big block" type="button" data-restart="${p.id}">Start it again</button>`
         : `<button class="btn primary big block" type="button" data-step="${p.id}:${pr.next}">▶ ${pr.done ? 'Continue' : 'Start'} · ${esc(p.steps[pr.next].name)}</button>`}
     </section>
+    ${pr.finished ? '' : remindHTML(state, p)}
     ${weeks.map((steps, w) => `
     <div class="sec-head"><h2>Week ${w + 1}</h2><span class="muted small">${steps.filter(([, i]) => pr.doneSteps.has(i)).length} of ${steps.length}</span></div>
     <ol class="steps-list">${steps.map(([st, i]) => {
@@ -123,6 +125,53 @@ function renderProgram(el, app, p) {
     }).join('')}</ol>`).join('')}
     <p class="small muted" style="margin:12px 2px 0">A session counts once you finish at least half its rounds. Do them in order, about ${p.perWeek} a week, with rest days between hard ones.</p>`;
   bind(el, app, () => renderProgram(el, app, p));
+  bindRemind(el, app, p, pr);
+}
+
+const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+const remindOf = (state, p) => state.profile.programs?.[p.id]?.remind || { days: DEFAULT_DAYS[p.perWeek] || [0, 2, 4], time: '18:00' };
+
+function remindHTML(state, p) {
+  const r = remindOf(state, p);
+  return `<details class="card remind" ${state.profile.programs?.[p.id]?.remind ? '' : 'open'}>
+    <summary><b>⏰ Reminders</b><span class="muted small">${r.days.map((d) => WEEKDAYS[d]).join(' · ')} at ${esc(r.time)}</span></summary>
+    <p class="small muted" style="margin:8px 0">Puts each session in your phone's calendar with an alert 15 minutes before. Pick ${p.perWeek} days.</p>
+    <div class="daychips" role="group" aria-label="Training days">${WEEKDAYS.map((n, d) => `<button type="button" data-rday="${d}" class="${r.days.includes(d) ? 'on' : ''}" aria-pressed="${r.days.includes(d)}">${n}</button>`).join('')}</div>
+    <div class="row2" style="margin-top:10px;align-items:end"><label>Time<input type="time" id="remTime" value="${esc(r.time)}"></label><button class="btn primary" type="button" id="remAdd">📅 Add</button></div>
+  </details>`;
+}
+
+function bindRemind(el, app, p, pr) {
+  const state = app.state;
+  const save = (r) => { state.profile.programs = { ...(state.profile.programs || {}), [p.id]: { ...(state.profile.programs?.[p.id] || {}), remind: r } }; app.persist(); };
+  $$('[data-rday]', el).forEach((b) => b.addEventListener('click', () => {
+    const r = remindOf(state, p), d = +b.dataset.rday;
+    const days = r.days.includes(d) ? r.days.filter((x) => x !== d) : [...r.days, d].sort((a, c) => a - c);
+    if (!days.length) return;
+    save({ ...r, days, time: $('#remTime').value || r.time });
+    renderProgram(el, app, p);
+    el.querySelector('.remind').open = true;
+  }));
+  $('#remAdd', el)?.addEventListener('click', async () => {
+    const r = { ...remindOf(state, p), time: $('#remTime').value || '18:00' };
+    save(r);
+    const { ics, count, first } = programIcs(p, pr.next, { ...r, url: location.href.split('#')[0], minutes: stepMinutes });
+    const file = new File([ics], `boxcoach-${p.id}.ics`, { type: 'text/calendar' });
+    try {
+      if (navigator.canShare?.({ files: [file] })) await navigator.share({ files: [file], title: `${p.name} sessions` });
+      else {
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(file);
+        a.download = file.name;
+        document.body.append(a);
+        a.click();
+        setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 4000);
+      }
+      toast(`${count} sessions from ${first.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}. Open the file to add them.`);
+    } catch (e) {
+      if (e?.name !== 'AbortError') toast('Could not make the calendar file.');
+    }
+  });
 }
 
 function bind(el, app, redraw = () => renderPrograms(el, app)) {
