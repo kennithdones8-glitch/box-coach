@@ -39,6 +39,8 @@ import { cardData, shareCard } from './sharecard.js';
 import { line as voiceLine, hasLine } from './voice.js';
 import { recentForm, sparkline } from './trends.js';
 import { punchStats } from './punchstats.js';
+import { programById, programProgress, stepLabel, stepMinutes, suggestProgram } from './programs.js';
+import { renderFuel, fuelTile } from './views/fuel.js';
 import { renderCombos, comboHTML } from './views/combos.js';
 import { parseCombo, comboText, comboLabel, comboSpeech, comboKey, punchDigits, pickCombo, judgeCalls, sessionCombos } from './combos.js';
 
@@ -56,7 +58,7 @@ function persist() {
   if (!store.save(state)) toast('Could not save — storage is full or blocked.');
 }
 
-export const APP_VERSION = '2026.10.09-11';
+export const APP_VERSION = '2026.10.12-1';
 
 const app = {
   version: APP_VERSION,
@@ -80,6 +82,33 @@ const app = {
   // Defense drill: slips, rolls and blocks called out and checked by the camera (see defense.js).
   // A punch drill from the Punches screen: 3 × 2 min, the coach calls only that drill's combos.
   startDrill: (punch, drill) => startSession({ type: 'shadow', rounds: 3, roundSec: 120, restSec: 45, tracking: state.settings.tracking === 'none' ? 'none' : 'camera', combos: true, comboLevel: 1, constraints: false, focus: null, callList: drill.calls, drill: { punch, name: drill.name } }),
+  // A session from a program (Train → Programs): it becomes your current program.
+  startProgramStep: (prog, i) => {
+    const st = prog?.steps[i];
+    if (!st) return;
+    state.profile.program = prog.id;
+    persist();
+    startSession({ tracking: st.plan.defense ? 'camera' : camOr(), focus: null, ...structuredClone(st.plan), program: { id: prog.id, step: i, name: `${prog.name}: ${st.name}` } });
+  },
+  // A drill from the library (Train → Drills). Punch drills go through startDrill so they're followed up.
+  startLibraryDrill: (d) => {
+    if (!d) return;
+    if (d.punchDrill) return app.startDrill(d.punch, d.punchDrill);
+    startSession({ tracking: d.plan.defense ? 'camera' : camOr(), focus: null, ...structuredClone(d.plan), libDrill: { id: d.id, name: d.name } });
+  },
+  // Today's training in minutes: done so far, and what today's plan has (for the Fuel targets).
+  trainingToday: () => {
+    const today = localDay(new Date());
+    const done = state.sessions.filter((s) => localDay(new Date(s.date)) === today);
+    const doneMin = done.reduce((a, s) => a + (s.durationMin || Math.round((s.totalSec || s.workSec || 0) / 60)), 0);
+    let plannedMin = 0;
+    try {
+      const plan = currentPlan();
+      const day = trainToday(state, app.model(), { planItems: plan.items.filter((i) => i.date === today && !i.moved), tomorrowItems: [] });
+      if (!/^Rest day|^Recover/.test(day.objective)) plannedMin = day.minutes || 0;
+    } catch { /* no plan yet */ }
+    return { doneMin, plannedMin };
+  },
   startDefense: () => startSession({ type: 'shadow', rounds: 3, roundSec: 120, restSec: 30, tracking: 'camera', combos: false, constraints: false, focus: null, defense: true }),
   showSummary: (s) => { s.scores = scoreSession(s, state.profile); renderSummary(s); },
   // Open the live-session setup with your combos (or just some of them) being called.
@@ -89,6 +118,9 @@ const app = {
     if (location.hash === '#train/session') renderTrain(); else location.hash = '#train/session';
   },
 };
+
+// Camera unless the boxer chose timer only.
+const camOr = () => (state.settings.tracking === 'none' ? 'none' : 'camera');
 
 // ---------------------------------------------------------------------------
 // Routing
@@ -102,6 +134,7 @@ const mods = {
   video: lazy(() => import('./views/video.js').then((m) => { videoMod = m; return m; })),
   study: lazy(() => import('./views/study.js')),
   punches: lazy(() => import('./views/punches.js')),
+  programs: lazy(() => import('./views/programs.js')),
 };
 let videoMod = null;
 const videoBusy = () => videoMod?.videoBusy() ?? false;
@@ -117,6 +150,7 @@ const routes = {
   boxer: () => location.replace(`#progress/${location.hash.split('/')[1] || 'skills'}`),
   coach: () => show('coach', (m) => m.renderCoach(view, app)), coachme: () => show('coachme', (m) => m.renderCoachMe(view, app)),
   punches: () => show('punches', (m) => m.renderPunches(view, app)),
+  fuel: () => renderFuel(view, app),
   // A friend's shared stats link: keep their card, then show you side by side.
   friend: () => {
     const card = readCard(location.hash.split('/')[1] || '');
@@ -150,7 +184,7 @@ function route() {
   const name = (location.hash.slice(1) || 'home').split('/')[0];
   const fn = routes[name] || renderHome;
   routeTok++;
-  const tab = { plan: 'home', coachme: 'home', log: 'progress', boxer: 'progress' }[name] || name;
+  const tab = { plan: 'home', coachme: 'home', fuel: 'home', log: 'progress', boxer: 'progress' }[name] || name;
   $$('.tabs a').forEach((a) => a.classList.toggle('active', a.dataset.tab === tab));
   // Screens slide in when you move between them (not when one redraws in place).
   view.classList.remove('enter');
@@ -248,6 +282,7 @@ function renderHome() {
   view.innerHTML = `
     ${pageHead('Today', { eyebrow: esc(dateLine) })}
     ${fresh ? '' : `${todayHero({ day, rec, checkin, insight })}
+    ${programHTML()}
     ${showCheckin && !checkin ? `<section class="card" id="checkinCard"><div class="card-head"><h2>Morning check-in</h2><button class="linkbtn small" id="hideCheckin">Later</button></div>${checkinForm()}</section>` : ''}
     ${recapHTML()}`}
 
@@ -296,6 +331,10 @@ function renderHome() {
   });
   bindCheckin();
   $('#setupTest')?.addEventListener('click', () => app.startPunchTest());
+  $('#progGo')?.addEventListener('click', () => {
+    const prog = programById(state.profile.program);
+    app.startProgramStep(prog, programProgress(prog, state.sessions, state.profile.programs?.[prog.id]?.since).next);
+  });
   $('#recapDone')?.addEventListener('click', () => {
     state.profile.recapSeen = $('#recapDone').dataset.week;
     persist();
@@ -339,7 +378,28 @@ function todayHero({ day, rec, checkin, insight }) {
       ${insight ? `<a class="th-tile th-insight" href="${insight.href}">
           <span class="th-t"><span class="th-l">${esc(insight.label)}</span><b>${esc(insight.title)}</b>${insight.cta ? `<span class="th-s th-cta">${esc(insight.cta)} →</span>` : ''}</span>
         </a>` : ''}
+      ${fuelTile(state, app.trainingToday())}
     </div>
+  </section>`;
+}
+
+// Your program's next session, or one to start.
+function programHTML() {
+  const prog = programById(state.profile.program);
+  const pr = prog && programProgress(prog, state.sessions, state.profile.programs?.[prog.id]?.since);
+  if (!prog || pr.finished) {
+    const sug = programById(suggestProgram(state.profile));
+    return `<a class="card prog-nudge" href="#train/programs/${sug.id}">
+      <span class="eyebrow gold">${prog ? `${esc(prog.name)} done ✓ · next program` : 'Programs'}</span>
+      <b>Try ${esc(sug.name)}</b><span class="small muted">${sug.weeks} weeks · ${sug.steps.length} sessions · ${esc(sug.level)}</span><span class="chev">›</span>
+    </a>`;
+  }
+  const st = prog.steps[pr.next];
+  return `<section class="card prog-today">
+    <div class="card-head"><span class="eyebrow gold" style="margin:0">Your program · ${esc(prog.name)}</span><a href="#train/programs/${prog.id}">${pr.done}/${pr.total} →</a></div>
+    <div class="pt-row"><div class="grow"><b>${esc(st.name)}</b><span class="small muted">${esc(stepLabel(prog, pr.next))} · ${stepMinutes(st)} min</span></div>
+    <button class="btn primary sm" type="button" id="progGo">▶ Start</button></div>
+    <div class="bar thin"><div style="width:${pr.pct}%"></div></div>
   </section>`;
 }
 
@@ -454,8 +514,10 @@ function bindCheckin() {
 let draft = null;
 
 function renderTrain() {
-  const sub = subOf('session');
-  view.innerHTML = `${pageHead('Train', { nav: subnav('train', [['session', 'Live'], ['combos', 'Combos'], ['study', 'Study'], ['video', 'Video']], sub) })}<div id="trainBody"></div>`;
+  const sub = subOf('programs');
+  view.innerHTML = `${pageHead('Train', { eyebrow: 'Put in the rounds', nav: subnav('train', [['programs', 'Programs'], ['drills', 'Drills'], ['session', 'Custom'], ['combos', 'Combos'], ['video', 'Video'], ['study', 'Study']], sub) })}<div id="trainBody"></div>`;
+  if (sub === 'programs') return show('programs', (m) => m.renderPrograms($('#trainBody'), app));
+  if (sub === 'drills') return show('programs', (m) => m.renderDrills($('#trainBody'), app));
   if (sub === 'video') return show('video', (m) => m.renderVideo($('#trainBody'), app));
   if (sub === 'combos') return renderCombos($('#trainBody'), app);
   if (sub === 'study') return show('study', (m) => m.renderStudy($('#trainBody'), app));
@@ -1133,6 +1195,8 @@ function buildSession(l, { test }) {
     spot: l.analyzer?.sig ? { ...l.analyzer.sig } : undefined, // where the camera was
     workout: l.plan.workout || undefined,
     drill: l.plan.drill || undefined, // a punch drill: which punch and drill, so its effect can be followed
+    program: l.plan.program || undefined, // a program step: { id, step, name }
+    libDrill: l.plan.libDrill || undefined, // a drill from the library: { id, name }
     defense: l.plan.defense && l.defRounds.length ? defenseSummary(l.defRounds) : undefined,
     adjustments: l.adjustments.length ? l.adjustments : undefined,
     rpe: 7, notes: '',
@@ -1261,6 +1325,8 @@ function sessionName(s) {
   if (s.test) return 'Punch test';
   if (s.defense) return 'Defense drill';
   if (s.drill) return `Drill: ${s.drill.name}`;
+  if (s.program?.name) return s.program.name;
+  if (s.libDrill?.name) return `Drill: ${s.libDrill.name}`;
   const w = s.workout && allWorkouts(state.profile).find((x) => x.id === s.workout);
   return w ? w.name : ALL_TYPES[s.type] || s.type;
 }
