@@ -166,7 +166,7 @@ export function calloutSVG(pt, text, { tone = 'gold', dx = 40, dy = -30, r = 15,
 const reduced = () => !!globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 
 // Play a scene in an SVG element until stop() (or the element leaves the page).
-// actors: [{ who, move, at, scale, mirror, delay }]; callouts: [{ actor, joint, text, tone, dx, dy, from, to }]
+// actors: [{ who, move, at, scale, mirror, delay, trail? (joint whose path to draw, e.g. 'fH') }]; callouts: [{ actor, joint, text, tone, dx, dy, from, to }]
 // (from / to: fractions of the first actor's move when the callout shows).
 export function playScene(svg, { actors, callouts = [], floor = true, width = 360, height = 300 }) {
   let raf = 0, t0 = performance.now(), stopped = false;
@@ -179,8 +179,16 @@ export function playScene(svg, { actors, callouts = [], floor = true, width = 36
     const poses = actors.map((a) => poseAt(a.move, ms - (a.delay || 0)));
     const frac = (((ms % moveLength(lead.move)) + moveLength(lead.move)) % moveLength(lead.move)) / moveLength(lead.move);
     const groundY = (lead.at[1] + GROUND * (lead.scale || 1)) + 9 * (lead.scale || 1);
+    // Trails: where a fist travelled over the last moment, so a hook reads as an arc and an
+    // uppercut as a rise (side-on, both otherwise look like a bent arm).
+    const trails = actors.map((a, i) => {
+      if (!a.trail || reduced()) return '';
+      const pts = Array.from({ length: 14 }, (_, k) => jointAt(poseAt(a.move, ms - (a.delay || 0) - k * 30), a.trail, a));
+      const moving = Math.hypot(pts[0][0] - pts.at(-1)[0], pts[0][1] - pts.at(-1)[1]) > 12;
+      return moving ? `<polyline points="${pts.map((q) => `${f1(q[0])},${f1(q[1])}`).join(' ')}" fill="none" stroke="#f5b700" stroke-width="7" stroke-linecap="round" stroke-linejoin="round" opacity="0.6"/>` : '';
+    }).join('');
     svg.innerHTML = `${floor ? `<ellipse cx="${width / 2}" cy="${f1(groundY)}" rx="${width * 0.42}" ry="10" fill="#000" opacity="0.35"/>` : ''}
-      ${actors.map((a, i) => figureSVG(poses[i], a)).join('')}
+      ${trails}${actors.map((a, i) => figureSVG(poses[i], a)).join('')}
       ${callouts.filter((c) => reduced() || frac >= (c.from ?? 0) && frac <= (c.to ?? 1)).map((c) => calloutSVG(jointAt(poses[c.actor || 0], c.joint, actors[c.actor || 0]), c.text, { ...c, width })).join('')}`;
     if (!reduced()) raf = requestAnimationFrame(draw);
   };

@@ -18,13 +18,15 @@ export function sessionXp(s) {
   return xp;
 }
 
-// A day of food logging (3+ entries) is worth a little too.
+// A day of food logging (3+ foods, not water) is worth a little too, once per day.
 const FUEL_XP = 15;
 
 export function xpTotal(sessions = [], food = []) {
-  const s = sessions.reduce((a, x) => a + sessionXp(x), 0);
+  // The same session saved twice (a retried save, an imported backup) counts once.
+  const seen = new Set();
+  const s = sessions.reduce((a, x) => { const k = x.id ?? `${x.date}|${x.type}`; if (seen.has(k)) return a; seen.add(k); return a + sessionXp(x); }, 0);
   const days = new Map();
-  for (const e of food) days.set(e.day, (days.get(e.day) || 0) + 1);
+  for (const e of food) if (e?.kcal != null && e.day) days.set(e.day, (days.get(e.day) || 0) + 1);
   return s + [...days.values()].filter((n) => n >= 3).length * FUEL_XP;
 }
 
@@ -36,12 +38,17 @@ export function levelOf(xp) {
   return { xp, level: i + 1, name: LEVELS[i][1], floor, next, pct: next ? Math.round((100 * (xp - floor)) / (next - floor)) : 100 };
 }
 
-// Days in a row with a session, ending today (or yesterday, until you train today).
+// Training days in a run where rest days don't break it: up to REST_OK rest days in a row are
+// fine (rest is part of training; a streak that punished it would push you to train hurt).
+// Counts the training days in the current run, which is still alive within REST_OK days of today.
+export const REST_OK = 2;
 export function dayStreak(sessions = [], now = new Date()) {
   const days = new Set(sessions.map((s) => dayKey(s.date)));
   const d = new Date(now);
-  if (!days.has(dayKey(d))) d.setDate(d.getDate() - 1);
-  let n = 0;
-  while (days.has(dayKey(d))) { n++; d.setDate(d.getDate() - 1); }
+  let n = 0, gap = 0;
+  for (let i = 0; i < 400; i++) {
+    if (days.has(dayKey(d))) { n++; gap = 0; } else if (++gap > REST_OK) break;
+    d.setDate(d.getDate() - 1);
+  }
   return n;
 }

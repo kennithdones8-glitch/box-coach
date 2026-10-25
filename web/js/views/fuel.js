@@ -40,10 +40,10 @@ export function renderFuel(el, app) {
       <form id="fuelWeight" class="row2"><label>Weight (${esc(profile.unit)})<input name="w" type="number" inputmode="decimal" min="30" max="500" step="0.1" required></label><button class="btn primary" type="submit" style="align-self:end">Save</button></form>
     </section>` : `
     <section class="grade-hero">
-      ${g.early ? `<div class="grade-ring empty"><b>–</b></div><h2 class="gh-head">The day's just started</h2><p class="gh-sub">Log breakfast and you'll get a grade.</p>`
+      ${g.early ? `<div class="grade-ring empty"><b>–</b></div><h2 class="gh-head">${g.nothing ? 'Nothing logged yet' : 'The day\'s just started'}</h2><p class="gh-sub">${g.nothing ? 'Log what you\'ve eaten to see how you\'re pacing.' : 'Log breakfast to see how you\'re pacing.'}</p>`
       : `<div class="grade-ring g-${g.letter}" style="--v:${g.score}"><b>${g.letter}</b><span>${g.score} / 100</span></div>
       <h2 class="gh-head">${esc(g.headline)}</h2>
-      <p class="gh-sub">Graded on your pace, not the full day.</p>`}
+      <p class="gh-sub">How you're pacing toward today's estimated targets. A guide, not a health score.</p>`}
     </section>
 
     ${fw ? `<section class="card coach-card fight-week">

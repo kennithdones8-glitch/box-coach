@@ -957,7 +957,7 @@ body.in-live .toast { bottom: auto; top: calc(env(safe-area-inset-top) + 8px); }
 .grade-ring.g-A, .grade-ring.g-B { --gc: var(--good); }
 .grade-ring.g-C { --gc: var(--accent-fill); }
 .grade-ring.g-D { --gc: var(--warn); }
-.grade-ring.g-F { --gc: var(--bad); }
+.grade-ring.g-F { --gc: var(--warn); }
 .grade-ring.sm { flex: none; width: 46px; height: 46px; }
 .grade-ring.sm b { font-size: 1.5rem; }
 .gh-head { margin: 12px 0 0; font-size: 1.2rem; font-weight: 750; }

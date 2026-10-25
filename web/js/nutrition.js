@@ -98,7 +98,10 @@ export function gradeDay(entries, tg, { now = new Date(), trainedToday = false, 
   const { pace, part } = dayPace(now);
   const got = totals(entries);
   if (!tg) return null;
+  // No grade before the day has started, and none for a day with nothing logged: an empty log
+  // means "not logged", not "didn't eat". A grade is a guide to today's targets, not a judgement.
   if (pace < 0.08 && !got.meals && !got.water) return { early: true, part, pace, got };
+  if (!got.meals) return { early: true, nothing: true, part, pace, got };
   const p = Math.max(pace, 0.15); // by early morning, breakfast is all that's expected
   const want = { kcal: Math.round(tg.kcal * p), protein: Math.round(tg.protein * p), water: Math.round(tg.water * p) };
   const fill = (k) => (want[k] ? got[k] / want[k] : 1);

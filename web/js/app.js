@@ -50,7 +50,7 @@ let state = store.load();
 const view = $('#view');
 applyTheme(state.settings.theme);
 // Saved data that couldn't be read is kept aside (store.RESCUE), never silently replaced.
-if (store.loadProblem) setTimeout(() => toast(store.loadProblem === 'rescued' ? 'Your saved data could not be read. A copy was kept: Settings → Your data.' : 'Your saved data could not be read.'), 800);
+if (store.loadProblem) setTimeout(() => toast(store.loadProblem === 'rescued' ? 'Your saved data could not be read. A copy was kept: Settings → Your data.' : store.loadProblem === 'setAside' ? `${store.setAsideCount} damaged record${store.setAsideCount === 1 ? ' was' : 's were'} set aside; everything else loaded. Settings → Your data.` : 'Your saved data could not be read.'), 800);
 
 // Model cache: recomputed only when data changes.
 let version = 0;
@@ -398,7 +398,7 @@ function todayHero({ day, rec, checkin, insight, fix = null, fixStatus = null })
   </section>`;
 }
 
-// Level, XP to the next one, the day streak and this week's training days.
+// Level, XP to the next one, the streak (rest days allowed) and this week's training days.
 function xpHTML() {
   if (!state.sessions.length) return '';
   const lv = levelOf(xpTotal(state.sessions, state.food));
@@ -410,7 +410,7 @@ function xpHTML() {
       <span class="xp-badge" aria-label="Level ${lv.level}"><small>LV</small>${lv.level}</span>
       <div class="xp-main"><b>${esc(lv.name)}</b><span class="small muted">${lv.xp.toLocaleString()} XP${lv.next ? ` · ${(lv.next - lv.xp).toLocaleString()} to ${esc(levelOf(lv.next).name)}` : ' · top level'}</span>
         <div class="bar thin"><div style="width:${lv.pct}%"></div></div></div>
-      <div class="xp-stat" title="Days in a row you trained"><b class="num">${streak ? '🔥' : ''}${streak}</b><span>day streak</span></div>
+      <div class="xp-stat" title="Training days in your current run. Rest days don't break it (up to 2 in a row)."><b class="num">${streak ? '🔥' : ''}${streak}</b><span>streak</span></div>
       <span class="ring sm wk-ring" style="--v:${Math.min(100, (wk.days / goal) * 100)}" title="Training days this week"><b>${wk.days}<small>/${goal}</small></b></span>
     </div>
   </section>`;

@@ -376,6 +376,7 @@ function settings(el, app) {
       </div>
       ${stored(store.BEFORE_IMPORT) ? '<button class="btn ghost block" id="undoImport" type="button">Undo last import</button>' : ''}
       ${stored(store.RESCUE) ? '<p class="msg small">Your earlier data on this phone could not be read, so a copy was kept. Download it and send it to whoever helps you with the app; it may be repairable.</p><button class="btn ghost block" id="rescueBtn" type="button">Download the unreadable data</button>' : ''}
+      ${stored(store.QUARANTINE) ? '<p class="msg small">Some saved records were damaged, so they were set aside instead of breaking the app. Everything else is here.</p><button class="btn ghost block" id="quarantineBtn" type="button">Download the damaged records</button>' : ''}
       <button class="btn danger block" id="resetBtn">Erase everything</button>
     </section>
     <section class="card tips">
@@ -502,6 +503,13 @@ function settings(el, app) {
       toast(err.message || 'Could not undo.');
     }
     app.rerender();
+  });
+  $('#quarantineBtn', el)?.addEventListener('click', () => {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([localStorage.getItem(store.QUARANTINE) || ''], { type: 'application/json' }));
+    a.download = 'boxcoach-damaged-records.json';
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   });
   $('#rescueBtn', el)?.addEventListener('click', () => {
     const a = document.createElement('a');

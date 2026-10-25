@@ -3,7 +3,7 @@
 import { FormAnalyzer, PUNCH_DIGIT, combineRounds, sequencesFrom, streamFrom, comboStats, PUNCH_NAMES, choosePose, PersonTracker, personAt } from '../form.js';
 import { ALL_TYPES } from '../coach.js';
 import { $, $$, esc, opt, toast } from '../ui.js';
-import { newId } from '../store.js';
+import { newId, saveDraft, clearDraft } from '../store.js';
 import { comboLabel, comboText, parseCombo, STARTERS } from '../combos.js';
 import { calibrateFromCombo, trustedCal } from '../calibrate.js';
 import { harvest, addExamples, spotModel } from '../personal.js';
@@ -591,6 +591,10 @@ async function analyse(file, video, opts, el, app) {
       stance: opts.stance, drill: opts.drill ? comboText(opts.drill.tokens) : null,
       sheets: sheets.sheets, ai: opts.ai ? { state: 'pending' } : null, sig: analyzer.sig,
     };
+    // Minutes of analysis shouldn't vanish if the phone reloads the app before you review it:
+    // the result as the camera read it is kept as an unsaved session (recovered on next open).
+    // The video itself can't be kept, so your review edits start again from there.
+    if (opts.subject !== 'pro') saveDraft(buildSession(job));
     app.rerender();
   } catch (err) {
     video.pause();
@@ -847,6 +851,7 @@ function renderReview(el, app) {
     j.aiAbort?.abort();
     URL.revokeObjectURL(j.url);
     job = null;
+    clearDraft();
     app.rerender();
   });
   $('#vidSave', el).addEventListener('click', () => {

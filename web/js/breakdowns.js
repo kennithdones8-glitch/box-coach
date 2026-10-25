@@ -5,7 +5,9 @@ import { punchCountOk, trackingOk, typesOk, outputPpm } from './coach.js';
 import { typeTrusted } from './trust.js';
 import { PUNCH_NAMES } from './form.js';
 
-const YOU = (move, x = 150) => ({ who: 'you', move, at: [x, 176], scale: 1.25 });
+// Hooks and uppercuts show the fist's path (an arc, a rise): side-on the bent arm alone doesn't say which.
+const TRAIL = { hook: 'fH', leadUpper: 'fH', rearHook: 'bH', upper: 'bH', bodyHead: 'fH' };
+const YOU = (move, x = 150) => ({ who: 'you', move, at: [x, 176], scale: 1.25, trail: TRAIL[move] });
 const PARTNER = (move, delay = 0) => ({ who: 'partner', move, at: [262, 176], scale: 1.25, mirror: true, delay });
 const up = (s, n = 24) => { const t = String(s).toUpperCase().replace(/[.!]$/, ''); return t.length > n ? `${t.slice(0, n - 1)}…` : t; };
 // The first sentence (or clause), at most n words.

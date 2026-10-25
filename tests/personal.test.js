@@ -94,3 +94,25 @@ test('the personal reader never takes over when your labels are noise', () => {
   const m = trainPersonal(addExamples(addExamples([], noisy.slice(0, 25), 'a'), noisy.slice(25), 'b'));
   assert.equal(m.use, false, `random labels: ${m.acc} vs built-in ${m.baseAcc}`);
 });
+
+test('damaged saved records are set aside on load, never crash the app or vanish', async () => {
+  const store = await import('../web/js/store.js');
+  const mem = {};
+  const storage = { getItem: (k) => mem[k] ?? null, setItem: (k, v) => { mem[k] = v; } };
+  mem['boxcoach.v1'] = JSON.stringify({
+    sessions: [{ id: 'a', date: '2026-10-01T10:00:00Z', type: 'shadow' }, null, { id: 'b', date: 'not a date' }, 'x'],
+    weights: [{ date: '2026-10-01', value: 160 }, 7], food: 'oops',
+  });
+  const st = store.load(storage);
+  assert.deepEqual(st.sessions.map((s) => s.id), ['a']);
+  assert.equal(st.weights.length, 1);
+  assert.deepEqual(st.food, []);
+  assert.equal(store.loadProblem, 'setAside');
+  assert.equal(store.setAsideCount, 4);
+  const q = JSON.parse(mem[store.QUARANTINE]);
+  assert.equal(q.records.sessions.length, 3, 'kept for repair');
+  // Clean data loads without a problem.
+  mem['boxcoach.v1'] = JSON.stringify({ sessions: [{ id: 'a', date: '2026-10-01T10:00:00Z' }] });
+  store.load(storage);
+  assert.equal(store.loadProblem, null);
+});
