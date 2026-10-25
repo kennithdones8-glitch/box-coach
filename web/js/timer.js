@@ -120,3 +120,48 @@ export function upcomingBells(timer, now = Date.now()) {
   }
   return out;
 }
+
+// A plain stopwatch with laps, on wall-clock time (keeps counting while the phone is locked).
+export class Stopwatch {
+  constructor(clock = now) {
+    this.clock = clock;
+    this.reset();
+  }
+
+  reset() {
+    this.acc = 0;
+    this.t0 = null;
+    this.laps = []; // ms per lap
+    this.startedAt = null;
+  }
+
+  get running() { return this.t0 != null; }
+
+  elapsed() { return this.acc + (this.running ? this.clock() - this.t0 : 0); }
+
+  start() {
+    if (this.running) return;
+    this.startedAt ??= new Date(this.clock()).toISOString();
+    this.t0 = this.clock();
+  }
+
+  pause() {
+    if (!this.running) return;
+    this.acc += this.clock() - this.t0;
+    this.t0 = null;
+  }
+
+  lap() {
+    const done = this.laps.reduce((a, b) => a + b, 0);
+    this.laps.push(this.elapsed() - done);
+    return this.laps.at(-1);
+  }
+}
+
+// 1:02.34, or 1:02:03.4 past an hour.
+export function fmtMs(ms) {
+  const t = Math.max(0, Math.floor(ms / 10));
+  const cs = t % 100, s = Math.floor(t / 100) % 60, m = Math.floor(t / 6000) % 60, h = Math.floor(t / 360000);
+  const p = (n) => String(n).padStart(2, '0');
+  return h ? `${h}:${p(m)}:${p(s)}.${Math.floor(cs / 10)}` : `${m}:${p(s)}.${p(cs)}`;
+}
