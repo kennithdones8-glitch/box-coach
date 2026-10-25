@@ -33,7 +33,9 @@ test('punch stats: mix, per-punch speed and changes against the period before', 
   assert.equal(jab.read, 90, 'camera read rate from the punch test');
   assert.ok(jab.focus.some((f) => f.key === 'rearDrop'), 'rear hand dropping on jabs');
   const lu = st.types.find((x) => x.type === 'leadUppercut');
-  assert.ok(lu.focus.some((f) => f.key === 'underused'));
+  // Hardly any lead uppercuts, but the camera calls that type right too rarely to coach from it.
+  assert.equal(lu.trusted, false);
+  assert.equal(lu.focus.length, 0, 'no coaching from an unverified punch type');
   assert.equal(lu.read, 40);
   assert.equal(st.types.find((x) => x.type === 'cross').speed, null, 'no speed from fewer than 5 punches');
   assert.ok(st.changes.some((c) => /Jab speed up 0.8/.test(c.text) && c.good));
@@ -78,4 +80,16 @@ test('did the drill work: the targeted number in your other training, before vs 
   const early = drillProgress(sessions.slice(0, 5), { now })[0];
   assert.equal(early.verdict, 'early');
   assert.equal(drillProgress(sessions.filter((s) => !s.drill), { now }).length, 0, 'no drills, nothing shown');
+});
+
+test('punch types: side-on or back-to-camera sessions count toward totals, not toward the mix', () => {
+  const front = sess(10, mix(100, 100, 0, 0, 0, 0), { form: { sidePct: 10 } });
+  const side = sess(8, mix(0, 0, 100, 100, 0, 0), { form: { sidePct: 85 } });
+  const behind = sess(6, mix(0, 0, 100, 0, 0, 0), { form: { awayPct: 30 } });
+  const st = punchStats([front, side, behind], { days: 30, now });
+  assert.equal(st.sessions, 3);
+  assert.equal(st.typedSessions, 1, 'only the front-on session tells punch types apart');
+  assert.equal(st.total, 500, 'every well-tracked punch still counts');
+  assert.equal(st.types.find((x) => x.type === 'jab').share, 50);
+  assert.equal(st.types.find((x) => x.type === 'leadHook').share, 0, 'side-on "hooks" are not in the mix');
 });

@@ -1,7 +1,8 @@
 // What the animated figures show: a demo for each drill, a recap story after a session, and a
 // breakdown of the punch most worth fixing. Only numbers the camera measured well are shown
 // (punchCountOk / trackingOk); a slide without trustworthy data is left out, not guessed.
-import { punchCountOk, trackingOk, outputPpm } from './coach.js';
+import { punchCountOk, trackingOk, typesOk, outputPpm } from './coach.js';
+import { typeTrusted } from './trust.js';
 import { PUNCH_NAMES } from './form.js';
 
 const YOU = (move, x = 150) => ({ who: 'you', move, at: [x, 176], scale: 1.25 });
@@ -70,14 +71,14 @@ export function recapSlides(s, { name = 'Session', xp = null, level = null } = {
   const trusted = s.punches?.total && s.source !== 'manual' && punchCountOk(s);
   if (trusted) {
     const total = s.punches.total, ppm = outputPpm(s);
-    const by = s.punches.byType;
+    const by = typesOk(s) ? s.punches.byType : null; // side-on or from behind: a count, no punch mix
     const types = by ? Object.entries(by).filter(([, n]) => n > 0).sort((a, b) => b[1] - a[1]).slice(0, 5) : [];
     const top = types[0];
     slides.push({
       kicker: 'THE COUNT', title: [`${total.toLocaleString()} PUNCHES.`, ppm ? `${Math.round(ppm)} A MINUTE.` : ''], tone: 'gold',
-      bars: types.map(([t, n]) => ({ label: PUNCH_NAMES[t] || t, v: n, max: top[1], text: `${Math.round((100 * n) / total)}%`, tone: t === top[0] ? 'gold' : '' })),
+      bars: types.map(([t, n]) => ({ label: `${PUNCH_NAMES[t] || t}${typeTrusted(t) ? '' : ' ?'}`, v: n, max: top[1], text: `${Math.round((100 * n) / total)}%`, tone: t === top[0] ? 'gold' : '' })),
       big: types.length ? null : { value: total, unit: 'punches' },
-      caption: top ? `Your *${(PUNCH_NAMES[top[0]] || top[0]).toLowerCase()}* led the way.` : 'Counted by the camera.',
+      caption: top && typeTrusted(top[0]) ? `Your *${(PUNCH_NAMES[top[0]] || top[0]).toLowerCase()}* led the way.` : by ? 'Counted by the camera. *?* = often misread.' : 'Counted by the camera. Types need a *front-on* camera.',
     });
   }
   if (s.form && trackingOk(s) && s.form.guard != null) {

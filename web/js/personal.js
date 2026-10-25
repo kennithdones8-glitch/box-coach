@@ -6,6 +6,8 @@ export const KIND_OF = { jab: 'straight', cross: 'straight', leadHook: 'hook', r
 const MAX = 800; // examples kept (newest)
 const MIN = 20; // before it's worth trying
 const K = 5;
+const MIN_CLASS = 3; // a kind taught fewer times than this is never predicted (falls back to built-in)
+const MIN_SHARE = 0.6; // and a close vote keeps the built-in reading
 
 // Version of the measurements. 2: an uppercut's rise is measured from the bottom of its dip
 // (before, uppercuts that dipped first measured almost no rise and looked like hooks).
@@ -15,6 +17,7 @@ const FEAT_V = 2;
 const current = (x) => x && x.kind && (x.v >= 2 || x.angle >= 140);
 
 const vec = (x) => [x.ext, x.angle / 180, x.rise, x.fwd, x.lat, x.e2, x.a2 / 180, x.dx, x.dy, Math.min(3, x.fore) / 3, x.side];
+const finite = (x) => vec(x).every(Number.isFinite); // a damaged saved example is skipped, never measured
 
 // One labelled punch from a detection event. kind: straight / hook / uppercut / none (not a punch).
 export function example(e, kind) {
@@ -62,37 +65,53 @@ export function harvest(events) {
     .map((e) => example(e, e.keep ? KIND_OF[e.fix] : 'none'));
 }
 
-export const addExamples = (old = [], add = []) => [...old, ...add].slice(-MAX);
+// g: which batch (a punch test, a reviewed video) the examples came from, so checking the reader
+// never lets a punch vouch for its near-twins from the same session.
+export const addExamples = (old = [], add = [], g = Date.now().toString(36)) => [...(Array.isArray(old) ? old : []), ...add.map((x) => ({ g, ...x }))].slice(-MAX);
 
 export function trainPersonal(examples) {
-  const xs = (examples || []).filter(current);
+  const xs = (Array.isArray(examples) ? examples : []).filter((x) => current(x) && finite(x));
   if (xs.length < MIN || new Set(xs.map((x) => x.kind)).size < 2) return null;
+  const perKind = {};
+  for (const x of xs) perKind[x.kind] = (perKind[x.kind] || 0) + 1;
   const raw = xs.map(vec);
   const d = raw[0].length;
   const mean = Array.from({ length: d }, (_, j) => raw.reduce((a, v) => a + v[j], 0) / raw.length);
   const sd = Array.from({ length: d }, (_, j) => Math.sqrt(raw.reduce((a, v) => a + (v[j] - mean[j]) ** 2, 0) / raw.length) || 1);
   const pts = raw.map((v) => v.map((x, j) => (x - mean[j]) / sd[j]));
-  const vote = (p, skip = -1) => {
-    const near = pts.map((q, i) => [i === skip ? Infinity : q.reduce((a, x, j) => a + (x - p[j]) ** 2, 0), i]).sort((a, b) => a[0] - b[0]).slice(0, K);
+  const vote = (p, skip = () => false) => {
+    const near = pts.map((q, i) => [skip(i) ? Infinity : q.reduce((a, x, j) => a + (x - p[j]) ** 2, 0), i]).sort((a, b) => a[0] - b[0]).slice(0, K);
     const tally = {};
     for (const [dist, i] of near) if (dist < Infinity) tally[xs[i].kind] = (tally[xs[i].kind] || 0) + 1 / (1 + Math.sqrt(dist));
     const total = Object.values(tally).reduce((a, b) => a + b, 0) || 1;
-    const [kind, w] = Object.entries(tally).sort((a, b) => b[1] - a[1])[0];
+    const top = Object.entries(tally).sort((a, b) => b[1] - a[1])[0];
+    if (!top) return { kind: null, share: 0 };
+    const [kind, w] = top;
+    // Too few examples of that kind, or a close vote: no say (the built-in reading stands).
+    if ((perKind[kind] || 0) < MIN_CLASS || w / total < MIN_SHARE) return { kind: null, share: w / total };
     return { kind, share: w / total };
   };
-  // Leave-one-out: how often it gets your own labels right without having seen that punch.
-  let right = 0, baseRight = 0, baseN = 0;
+  // Checked on punches it hasn't seen: each one is read without its own batch (session) when the
+  // examples come from 2+ batches, else without itself. A wrong or skipped call counts as wrong;
+  // the built-in reading is scored on exactly the same punches.
+  const groups = new Set(xs.map((x) => x.g ?? null));
+  const grouped = groups.size >= 2 && !groups.has(null);
+  let right = 0, baseRight = 0, baseN = 0, fallback = 0;
   pts.forEach((p, i) => {
-    if (vote(p, i).kind === xs[i].kind) right++;
+    const v = vote(p, grouped ? (k) => xs[k].g === xs[i].g : (k) => k === i);
+    const said = v.kind ?? xs[i].base; // no say: the built-in reading
+    if (!v.kind) fallback++;
+    if (said === xs[i].kind) right++;
     if (xs[i].base) { baseN++; if (xs[i].base === xs[i].kind) baseRight++; }
   });
   const acc = right / xs.length;
   // "Not a punch" labels the built-in reader never gets right, so compare over all labels.
   const baseAcc = baseN ? baseRight / xs.length : 0;
   return {
-    n: xs.length, acc: Math.round(acc * 100) / 100, baseAcc: Math.round(baseAcc * 100) / 100,
-    use: acc >= 0.6 && acc >= baseAcc + 0.05,
-    predict: (x) => vote(vec(x).map((v, j) => (v - mean[j]) / sd[j])),
+    n: xs.length, acc: Math.round(acc * 100) / 100, baseAcc: Math.round(baseAcc * 100) / 100, grouped,
+    // Within one session the check is easier (near-identical punches), so it must win by more.
+    use: acc >= 0.6 && acc >= baseAcc + (grouped ? 0.05 : 0.1),
+    predict: (x) => (finite(x) ? vote(vec(x).map((v, j) => (v - mean[j]) / sd[j])) : { kind: null, share: 0 }),
   };
 }
 

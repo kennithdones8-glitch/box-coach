@@ -65,3 +65,32 @@ test('uppercuts taught before the dip fix are not used', async () => {
   assert.equal(m.n, 30);
   assert.equal(m.predict(example(ev(0, 0.15), 'hook')).kind, 'hook');
 });
+
+test('the personal reader stays safe: damaged examples, rare kinds, close votes and one-session checks', () => {
+  const base = set();
+  // Damaged saved examples (missing numbers) are skipped, not measured as NaN.
+  const damaged = [...base, { v: 2, kind: 'hook', base: 'hook', ext: undefined, angle: 'x' }, null, { kind: 'straight' }];
+  const m = trainPersonal(damaged);
+  assert.equal(m.n, base.length);
+  assert.ok(Number.isFinite(m.acc));
+  assert.equal(m.predict({ ext: NaN }).kind, null, 'a damaged punch gets no personal reading');
+  // A kind taught only twice is never predicted: the built-in reading stands.
+  const rare = [...base.filter((x) => x.kind !== 'none'), ...base.filter((x) => x.kind === 'none').slice(0, 2)];
+  const r = trainPersonal(rare);
+  assert.equal(r.predict({ ext: 0.7, angle: 58, rise: 0, fwd: 0, lat: 0.05, e2: 0.33, a2: 44, dx: 0, dy: 0, fore: 0.6, side: 0.1 }).kind, null);
+  // A close vote (halfway between your straights and hooks) gives no say either.
+  const mid = m.predict({ ext: 0.76, angle: 110, rise: 0.025, fwd: 0.07, lat: 0.22, e2: 0.75, a2: 120, dx: 0.1, dy: -0.02, fore: 0.9, side: 0.1 });
+  assert.ok(mid.kind === null || mid.share >= 0.6);
+  // Examples from two sessions are checked session against session.
+  const two = addExamples(addExamples([], base.slice(0, 25), 'a'), base.slice(25), 'b');
+  assert.equal(trainPersonal(two).grouped, true);
+  assert.equal(trainPersonal(base).grouped, false, 'one batch: checked one punch at a time, and must win by more');
+  assert.deepEqual(addExamples('broken', [{ kind: 'hook' }], 'z'), [{ g: 'z', kind: 'hook' }], 'a damaged saved list is replaced, not crashed on');
+});
+
+test('the personal reader never takes over when your labels are noise', () => {
+  const rand = mulberry(7);
+  const noisy = set().map((x) => ({ ...x, kind: ['straight', 'hook', 'none'][Math.floor(rand() * 3)] }));
+  const m = trainPersonal(addExamples(addExamples([], noisy.slice(0, 25), 'a'), noisy.slice(25), 'b'));
+  assert.equal(m.use, false, `random labels: ${m.acc} vs built-in ${m.baseAcc}`);
+});

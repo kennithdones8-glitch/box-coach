@@ -266,3 +266,17 @@ test('the first screen preloads exactly the modules it imports (no lazy screens,
   assert.deepEqual([...seen].filter((f) => !pre.has(f)), [], 'imported at startup but not preloaded');
   assert.deepEqual([...pre].filter((f) => !seen.has(f)), [], 'preloaded but not needed at startup');
 });
+
+test('video playback plan: a phone a bit slower than the frames plays slowed down instead of pausing on each', async () => {
+  const { playPlan, steer, MIN_RATE } = await import('../web/js/flow.js');
+  const gap = 1000 / 15; // Normal detail: 15 frames a second
+  assert.deepEqual(playPlan(20, gap), { mode: 'flow', rate: 1 }, 'fast phone: full speed');
+  // The measured iPhone (51 ms pose model) used to pause on every frame; now it plays at ~0.93x.
+  const ip = playPlan(51, gap);
+  assert.equal(ip.mode, 'flow');
+  assert.ok(ip.rate > 0.85 && ip.rate < 1, String(ip.rate));
+  assert.equal(playPlan(120, gap).mode, 'step', 'too slow even at half speed: pause on each frame');
+  assert.deepEqual(playPlan(0, gap), { mode: 'flow', rate: 1 }, 'not measured yet: start normally (the speed steers itself)');
+  assert.equal(steer(0.5, 3), MIN_RATE, 'never below the slowest safe speed');
+  assert.ok(steer(1, 1) > 1 && steer(1, 2) < 1);
+});

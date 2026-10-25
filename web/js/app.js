@@ -1,7 +1,7 @@
 import * as store from './store.js';
 import {
   AREAS, TARGETS, ALL_TYPES, BOXING_TYPES, INSIGHTS,
-  scoreSession, feedback, updateMemory, nextCombo, comboToSpeech, weekSummary, outputPpm, speedText,
+  scoreSession, feedback, updateMemory, nextCombo, comboToSpeech, weekSummary, outputPpm, speedText, typesOk,
 } from './coach.js';
 import { FormAnalyzer, combineRounds, PUNCH_NAMES } from './form.js';
 import { requestMotionPermission, startMotion, motionSupported } from './motion.js';
@@ -39,6 +39,7 @@ import { cardData, shareCard } from './sharecard.js';
 import { line as voiceLine, hasLine } from './voice.js';
 import { recentForm, sparkline } from './trends.js';
 import { punchStats } from './punchstats.js';
+import { typeTrusted } from './trust.js';
 import { programById, programProgress, stepLabel, stepMinutes, suggestProgram } from './programs.js';
 import { renderFuel, fuelTile } from './views/fuel.js';
 import { sessionXp, xpTotal, levelOf, dayStreak } from './xp.js';
@@ -1297,7 +1298,7 @@ function punchBreakdown(by) {
   if (!by) return '';
   const total = Object.values(by).reduce((a, b) => a + b, 0) || 1;
   return `<div class="breakdown">${Object.entries(by).map(([k, v]) => `
-    <div class="bd-row"><span>${PUNCH_NAMES[k]}</span><div class="bd-bar"><div style="width:${(v / total) * 100}%"></div></div><b>${v}</b></div>`).join('')}</div>`;
+    <div class="bd-row"><span>${PUNCH_NAMES[k]}${typeTrusted(k) ? '' : ' <em class="unv-tag" title="Often misread for another punch">?</em>'}</span><div class="bd-bar"><div style="width:${(v / total) * 100}%"></div></div><b>${v}</b></div>`).join('')}</div>`;
 }
 
 function fatigueTable(s) {
@@ -1352,7 +1353,7 @@ function sessionDetailHTML(s, fb) {
     ${(s.constraints || []).length ? `<h3>Constraint rounds</h3><ul class="small">${s.constraints.map((c) => `<li>R${c.round} ${esc(CONSTRAINTS[c.key]?.name || c.key)}${c.opponent ? ` vs ${esc(OPPONENTS[c.opponent].name.toLowerCase())}` : ''}: ${c.compliance != null ? `${c.compliance}%${c.auto ? ' (camera)' : ''}` : 'not rated'}</li>`).join('')}</ul>` : ''}
     ${hits.length ? `<h3>Why you got hit</h3><ul class="small">${hits.map(([k, n]) => `<li>${esc(HIT_REASONS[k]?.name || k)}: ${n}</li>`).join('')}</ul>` : ''}
     ${(s.positives || []).length ? `<p class="small"><b>What worked:</b> ${s.positives.map((k) => esc(POSITIVES[k]?.name || k)).join(', ')}</p>` : ''}
-    ${s.punches?.byType ? `<h3>Punch mix</h3>${punchBreakdown(s.punches.byType)}` : ''}
+    ${s.punches?.byType ? (typesOk(s) ? `<h3>Punch mix</h3>${punchBreakdown(s.punches.byType)}` : '<p class="small muted">Punch types not shown: filmed side-on or from behind, where the camera can\'t tell a cross from a hook. The count still stands.</p>') : ''}
     ${s.form?.comboShare != null ? `<p class="small muted">${s.form.comboShare}% of punches thrown in combinations · average combo ${s.form.avgComboLen ?? '–'} punches</p>` : ''}
     ${combosHTML(s)}
     ${roundsTable(s)}

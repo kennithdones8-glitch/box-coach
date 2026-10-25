@@ -1106,3 +1106,6 @@ body.in-story { overflow: hidden; }
 .drill-demo { display: block; width: 100%; max-height: 220px; margin: 0 0 8px; border-radius: var(--radius-sm); background: linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px) 0 0 / 100% 24px, #0d0e11; }
 .recap-go { margin: 10px 0 4px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 800; }
 .st-svg, .drill-demo { stroke: none; }
+.unv-tag { font-style: normal; font-size: 0.62rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; color: var(--est); border: 1px solid currentColor; border-radius: 4px; padding: 0 4px; margin-left: 4px; vertical-align: 1px; }
+.mix-row.unv .mix-bar div { background: var(--est); opacity: 0.6; }
+.warn-note { color: var(--warn); }

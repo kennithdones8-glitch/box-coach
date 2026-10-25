@@ -89,6 +89,14 @@ export function trackingOk(s) {
 // Punch counts also need the boxer alone in shot: with a partner in frame (pads, sparring) some
 // of the partner's movement can still be read as punches.
 export const punchCountOk = (s) => trackingOk(s) && !(s?.calib?.multi >= 20);
+// Punch TYPES need more than a count: the camera has to see the punch's shape. Filmed side-on,
+// labelled pads footage had 23% of types right, worse than guessing jab for the lead hand and
+// cross for the rear (53%); with your back to the camera, jabs read as hooks. So a session's punch
+// mix only counts when it was mostly filmed from the front or 45°. (60% is the share the app
+// already calls "filmed side-on".)
+export const SIDE_ON_PCT = 60;
+export const AWAY_PCT = 25;
+export const typesOk = (s) => punchCountOk(s) && !(s?.form?.sidePct >= SIDE_ON_PCT) && !(s?.form?.awayPct >= AWAY_PCT);
 
 export function returnScore(ms) {
   if (ms == null) return null;
@@ -161,7 +169,7 @@ export function detectPatterns(session) {
   const per = session.punches?.perRound || [];
   if (per.length >= 3 && per[0] >= 20 && per[per.length - 1] < per[0] * 0.7) found.push('outputFade');
   // Punch mix on pads or in a drilled combo is set by the holder or the combo, not your habits.
-  const by = session.type === 'mitts' || session.calib?.labels ? null : session.punches?.byType;
+  const by = session.type === 'mitts' || session.calib?.labels || !typesOk(session) ? null : session.punches?.byType;
   if (by) {
     const total = Object.values(by).reduce((a, b) => a + b, 0);
     if (total >= 40) {
