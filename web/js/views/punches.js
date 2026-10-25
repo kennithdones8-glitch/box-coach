@@ -38,7 +38,7 @@ export function renderPunches(el, app) {
     ${!st.total ? `
     <section class="card">
       <h2>No punch data in this period</h2>
-      <p class="small muted">Punch stats come from sessions the camera tracked well: train with the camera on, or analyse a video. ${days ? 'Or pick a longer period.' : ''}</p>
+      <p class="small muted">Train with the camera on, or analyse a video.${days ? ' Or pick a longer period.' : ''}</p>
       <a class="btn primary block" href="#train">Train with the camera</a>
     </section>` : `
     <section class="card">
@@ -48,7 +48,7 @@ export function renderPunches(el, app) {
         <div><b>${st.comboShare != null ? `${st.comboShare}%` : '–'}</b><span>combos</span></div>
         <div><b>${st.feintsPerMin ?? '–'}</b><span>feints/m</span></div>
       </div>
-      ${anySpeed ? '' : '<p class="small muted" style="margin:8px 0 0">Punch speed shows once you have recent camera sessions (the per-punch detail is kept for your latest 12).</p>'}
+
     </section>
 
     ${focusX ? `
@@ -70,15 +70,15 @@ export function renderPunches(el, app) {
           <b class="num">${x.share ?? 0}%</b>
           ${delta(x.shareDelta, '', 0) || '<span class="dl"></span>'}
         </div>`).join('')}</div>
-      ${st.typedSessions < st.sessions ? `<p class="small warn-note" style="margin:8px 0 0">${st.typedSessions ? `Punch types come from ${st.typedSessions} of your ${st.sessions} sessions:` : 'No punch types yet:'} the rest were filmed side-on or from behind, where the camera can't tell a cross from a hook. Film from the front or at 45° to get them.</p>` : ''}
-      <p class="small muted" style="margin:8px 0 0">${st.typedTotal.toLocaleString()} of ${st.total.toLocaleString()} punches typed, from ${st.typedSessions} session${st.typedSessions === 1 ? '' : 's'}. "Unverified" types are often misread for another punch, so they're shown but never coached from.${st.reads ? ` Camera read rates from your punch test on ${esc(shortDate(st.reads.date))}.` : ' Do a punch test to see how well the camera reads each punch.'}</p>
+      ${st.typedSessions < st.sessions ? `<p class="small warn-note" style="margin:8px 0 0">Types only from front-on sessions (${st.typedSessions} of ${st.sessions}). Side-on, the camera can't tell a cross from a hook.</p>` : ''}
+      <p class="small muted" style="margin:8px 0 0">"Unverified" = often misread, so never coached from.</p>
     </section>
 
     <section class="card">
       <h2>What changed</h2>
       ${st.changes.length ? `<ul class="changes">${st.changes.slice(0, 6).map((c) => `<li class="${c.good === true ? 'good' : c.good === false ? 'bad' : ''}">${c.good === true ? '▲' : c.good === false ? '▼' : '•'} ${esc(c.text)}</li>`).join('')}</ul>
-        <p class="small muted" style="margin:6px 0 0">Against ${vsTxt || 'earlier'} (${st.prevSessions} session${st.prevSessions === 1 ? '' : 's'}).</p>`
-      : `<p class="small muted" style="margin:0">${days ? `Not enough to compare yet: it needs camera sessions in both this period and ${vsTxt} (${st.sessions} now, ${st.prevSessions} before).` : 'Pick 30 or 90 days to compare with the period before.'}</p>`}
+        <p class="small muted" style="margin:6px 0 0">Against ${vsTxt || 'earlier'}.</p>`
+      : `<p class="small muted" style="margin:0">${days ? 'Not enough sessions to compare yet.' : 'Pick 30 or 90 days to compare.'}</p>`}
     </section>
 
     <div class="section-label">Each punch</div>
@@ -89,14 +89,14 @@ export function renderPunches(el, app) {
         <span class="pc-name"><b>${esc(x.name)}</b><span>${x.lead ? 'Lead hand' : 'Rear hand'}${x.focus.length ? ' · <em>work on this</em>' : x.trusted ? '' : ' · unverified type'}</span></span>
         <span class="chev">${open === x.type ? '▾' : '›'}</span>
       </button>
-      <div class="pc-stats">
+      <div class="pc-stats ${x.read != null ? '' : 'three'}">
         <div><b class="num">${x.n.toLocaleString()}</b><span>thrown</span></div>
         <div><b class="num">${sp(x.speed)}</b><span>${spUnit}${x.speed != null ? ` ${delta(x.speedDelta != null ? Math.round((speedIn(x.speed, unit) - speedIn(x.speed - x.speedDelta, unit)) * 10) / 10 : null)}` : ''}</span></div>
         <div><b class="num">${x.returnMs ?? '–'}</b><span>ms home</span></div>
-        <div><b class="num">${x.read != null ? `${x.read}%` : '–'}</b><span>cam read</span></div>
+        ${x.read != null ? `<div><b class="num">${x.read}%</b><span>cam read</span></div>` : ''}
       </div>
       ${x.focus.length ? `<ul class="pc-focus">${x.focus.map((f) => `<li>${esc(f.text)}</li>`).join('')}</ul>` : ''}
-      ${x.speed == null && x.n && anySpeed ? `<p class="small muted" style="margin:6px 0 0">Speed needs 5+ of these from recent camera sessions (${x.speedN} so far).</p>` : ''}
+
       ${open === x.type ? drillHTML(x.type, drillsFor(x.type, x.focus)) : ''}
     </section>`).join('')}
 
@@ -114,7 +114,7 @@ export function renderPunches(el, app) {
       ${open === 'feints' ? drillHTML('feints', PUNCH_DRILLS.feints) : ''}
     </section>
 
-    <p class="small muted" style="margin:6px 2px 16px">Counts come only from sessions the camera tracked well and with nobody else in frame; punch tests are left out. Speed and hand return are camera estimates: compare them with yourself, from the same camera spot. "Camera read" is how often your last punch test read that punch right: when it's low, that punch's count is less certain.</p>`}`;
+    <p class="small muted" style="margin:6px 2px 16px">Only well-tracked solo sessions count. Speed and hand return are estimates: compare with yourself.</p>`}`;
 
   $$('input[name=prange]', el).forEach((r) => r.addEventListener('change', () => { days = +r.value; renderPunches(el, app); }));
   $$('[data-open]', el).forEach((b) => b.addEventListener('click', () => { open = open === b.dataset.open ? null : b.dataset.open; renderPunches(el, app); }));

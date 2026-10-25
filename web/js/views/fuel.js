@@ -7,6 +7,7 @@ import { $, $$, esc, toast, pageHead } from '../ui.js';
 let foodCat = 'Protein';
 let query = '';
 let editBody = false;
+let allFoods = false;
 
 const LABEL = { kcal: 'Calories', protein: 'Protein', water: 'Water' };
 const STATUS = { on: 'On pace', behind: 'Behind', well: 'Well behind', over: 'Over pace' };
@@ -30,7 +31,8 @@ export function renderFuel(el, app) {
   const fmtV = (k, v) => (k === 'water' ? waterText(v, profile.unit) : k === 'kcal' ? v.toLocaleString() : `${v} g`);
   const waterBtns = profile.unit === 'lb' ? [[237, '+8 oz'], [473, '+16 oz'], [710, '+24 oz']] : [[250, '+250 ml'], [500, '+500 ml'], [750, '+750 ml']];
   const q = query.trim().toLowerCase();
-  const foods = q ? FOODS.filter((f) => f.name.toLowerCase().includes(q)) : FOODS.filter((f) => f.cat === foodCat);
+  const all = q ? FOODS.filter((f) => f.name.toLowerCase().includes(q)) : FOODS.filter((f) => f.cat === foodCat);
+  const foods = q || allFoods ? all : all.slice(0, 5);
 
   el.innerHTML = `
     ${pageHead('Fuel', { eyebrow: g ? `${esc(g.part)} · ${Math.round(g.pace * 100)}% through the day` : 'Nutrition' })}
@@ -51,25 +53,13 @@ export function renderFuel(el, app) {
       <ul class="tips">${fw.map((t) => `<li>${esc(t)}</li>`).join('')}</ul>
     </section>` : ''}
 
-    ${askBody ? `<section class="card">
-      <h2>About you</h2>
-      <p class="small muted" style="margin:2px 0 8px">For a closer calorie estimate. Asked once, kept on your phone.</p>
-      <form id="bodyForm" class="form">
-        ${lb ? `<div class="row2"><label>Height (ft)<input name="ft" type="number" inputmode="numeric" min="4" max="7" required value="${b.height ? Math.floor(b.height / 30.48) : ''}"></label><label>(in)<input name="inch" type="number" inputmode="numeric" min="0" max="11" value="${b.height ? Math.round((b.height / 2.54) % 12) : ''}"></label></div>`
-        : `<label>Height (cm)<input name="cm" type="number" inputmode="numeric" min="120" max="230" required value="${b.height || ''}"></label>`}
-        <label>Age<input name="age" type="number" inputmode="numeric" min="12" max="90" required value="${b.age || ''}"></label>
-        <div class="seg wide" role="radiogroup" aria-label="Sex"><label><input type="radio" name="sex" value="m" ${b.sex === 'm' ? 'checked' : ''}><span>Male</span></label><label><input type="radio" name="sex" value="f" ${b.sex === 'f' ? 'checked' : ''}><span>Female</span></label></div>
-        <button class="btn primary block" type="submit">Save</button>
-        ${profile.body ? '' : '<button class="linkbtn small" id="bodySkip" type="button" style="margin-top:8px">Skip: use weight only</button>'}
-      </form>
-    </section>` : ''}
 
     ${g.early ? '' : `<section class="card coach-card">
       <div class="eyebrow gold">🥗 Fuel coach</div>
       <ul class="tips">${g.tips.map((t) => `<li>${esc(t)}</li>`).join('')}</ul>
     </section>`}
 
-    ${ideas.length ? `<section class="card">
+    ${ideas.length && !g.early ? `<section class="card">
       <div class="card-head"><h2>Next meal ideas</h2><span class="muted small">fits what's left today</span></div>
       <ul class="food-list">${ideas.map((m, i) => `<li>
         <div class="grow"><b>${esc(m.name)}</b><span class="small muted">${m.kcal} kcal · ${m.protein} g protein</span></div>
@@ -77,7 +67,7 @@ export function renderFuel(el, app) {
       </li>`).join('')}</ul>
     </section>` : ''}
 
-    <section class="card">
+    ${g.early ? `<section class="card targets-line"><span class="eyebrow" style="margin:0">Today's targets</span><b>${fmtV('kcal', tg.kcal)} kcal · ${fmtV('protein', tg.protein)} protein · ${fmtV('water', tg.water)} water</b></section>` : `<section class="card">
       <div class="card-head"><h2>Pace vs plan</h2><span class="muted small">${tg.goal === 'cut' ? 'Cutting' : tg.goal === 'gain' ? 'Gaining' : 'Maintain'}</span></div>
       ${['kcal', 'protein', 'water'].map((k) => {
         const got = totals(entries)[k], target = tg[k];
@@ -87,8 +77,8 @@ export function renderFuel(el, app) {
           <div class="pace-bar"><div class="pb-fill ${row?.status || ''}" style="width:${Math.min(100, (got / target) * 100)}%"></div>${g.pace ? `<i class="pb-mark" style="left:${Math.min(100, g.pace * 100)}%" title="Where you should be by now"></i>` : ''}</div>
         </div>`;
       }).join('')}
-      <p class="small muted" style="margin:6px 0 0">${g.early ? '' : 'The line marks where you should be by now. '}${tg.trainMin ? `Includes ${tg.trainMin} min of training today.` : 'Rest day targets.'}</p>
-    </section>`}
+      <p class="small muted" style="margin:6px 0 0">The line is where you should be by now.</p>
+    </section>`}`}
 
     <section class="card">
       <div class="card-head"><h2>Water</h2>${tg ? `<span class="muted small">${waterText(totals(entries).water, profile.unit)} today</span>` : ''}</div>
@@ -103,6 +93,7 @@ export function renderFuel(el, app) {
         <div class="grow"><b>${esc(f.name)}</b><span class="small muted">${esc(f.portion)} · ${f.kcal} kcal · ${f.protein} g protein</span></div>
         <button class="btn primary sm" type="button" data-food="${f.id}" aria-label="Add ${esc(f.name)}">+ Add</button>
       </li>`).join('') || '<li class="muted small">Nothing matches. Add it yourself below.</li>'}</ul>
+      ${foods.length < all.length ? `<button class="linkbtn small" id="moreFoods" type="button" style="margin-top:8px">Show all ${all.length}</button>` : ''}
       <details class="custom-food">
         <summary>Add your own</summary>
         <form id="customFood" class="form">
@@ -122,7 +113,20 @@ export function renderFuel(el, app) {
       </li>`).join('')}</ul>` : '<p class="small muted" style="margin:0">Nothing yet. Tap + Add on what you ate.</p>'}
     </section>
 
-    <p class="small muted" style="margin:6px 2px 16px">Targets are estimates from your weight and training: about ${tg?.goal === 'cut' ? '2.2' : '2'} g of protein per kg, calories ${tg?.exact ? 'from your height, age and sex' : 'for an active day'} plus your training, and water at 35 ml per kg plus more for training. Food values are typical portions. This isn't medical advice: if you're making weight for a fight, work with your coach or a sports dietitian, and never cut water to make weight without one.${tg && profile.body ? ' <button class="linkbtn small" id="bodyEdit" type="button">Change your details</button>' : ''}</p>`;
+    ${askBody ? `<section class="card">
+      <h2>About you</h2>
+      <p class="small muted" style="margin:2px 0 8px">For a closer calorie estimate. Asked once, kept on your phone.</p>
+      <form id="bodyForm" class="form">
+        ${lb ? `<div class="row2"><label>Height (ft)<input name="ft" type="number" inputmode="numeric" min="4" max="7" required value="${b.height ? Math.floor(b.height / 30.48) : ''}"></label><label>(in)<input name="inch" type="number" inputmode="numeric" min="0" max="11" value="${b.height ? Math.round((b.height / 2.54) % 12) : ''}"></label></div>`
+        : `<label>Height (cm)<input name="cm" type="number" inputmode="numeric" min="120" max="230" required value="${b.height || ''}"></label>`}
+        <label>Age<input name="age" type="number" inputmode="numeric" min="12" max="90" required value="${b.age || ''}"></label>
+        <div class="seg wide" role="radiogroup" aria-label="Sex"><label><input type="radio" name="sex" value="m" ${b.sex === 'm' ? 'checked' : ''}><span>Male</span></label><label><input type="radio" name="sex" value="f" ${b.sex === 'f' ? 'checked' : ''}><span>Female</span></label></div>
+        <button class="btn primary block" type="submit">Save</button>
+        ${profile.body ? '' : '<button class="linkbtn small" id="bodySkip" type="button" style="margin-top:8px">Skip: use weight only</button>'}
+      </form>
+    </section>` : ''}
+
+    <p class="small muted" style="margin:6px 2px 16px">Estimates from your weight and training, not medical advice. Making weight? Work with your coach, and never cut water without one.${tg && profile.body ? ' <button class="linkbtn small" id="bodyEdit" type="button">Change your details</button>' : ''}</p>`;
 
   const redraw = () => renderFuel(el, app);
   const add = (e) => {
@@ -169,7 +173,8 @@ export function renderFuel(el, app) {
     add({ name: f.name, kcal: f.kcal, protein: f.protein, food: f.id });
     toast(`${f.name} added.`);
   }));
-  $$('[data-fcat]', el).forEach((b) => b.addEventListener('click', () => { foodCat = b.dataset.fcat; redraw(); }));
+  $$('[data-fcat]', el).forEach((b) => b.addEventListener('click', () => { foodCat = b.dataset.fcat; allFoods = false; redraw(); }));
+  $('#moreFoods')?.addEventListener('click', () => { allFoods = true; redraw(); });
   $$('[data-del]', el).forEach((b) => b.addEventListener('click', () => { state.food = state.food.filter((x) => x.id !== b.dataset.del); app.persist(); redraw(); }));
   const search = $('#foodSearch');
   search.addEventListener('input', () => {
@@ -199,6 +204,6 @@ export function fuelTile(state, trainingToday) {
   const t = totals(entries);
   return `<a class="th-tile th-fuel" href="#fuel">
     ${g && !g.early ? `<span class="grade-ring sm g-${g.letter}" style="--v:${g.score}"><b>${g.letter}</b></span>` : '<span class="ring sm empty"><b>🍽</b></span>'}
-    <span class="th-t"><span class="th-l">Fuel</span><b>${g && !g.early ? esc(g.headline) : tg ? 'Log what you eat' : 'Set up nutrition'}</b><span class="th-s">${tg ? `${t.protein} / ${tg.protein} g protein · ${t.kcal.toLocaleString()} / ${tg.kcal.toLocaleString()} kcal` : 'Targets from your weight and training'}</span></span>
+    <span class="th-t"><span class="th-l">Fuel</span><b>${g && !g.early ? esc(g.headline) : tg ? 'Log what you eat' : 'Set up nutrition'}</b><span class="th-s">${!tg ? 'Targets from your weight and training' : t.meals ? `${t.protein} / ${tg.protein} g protein` : 'Tap to log a meal'}</span></span>
   </a>`;
 }

@@ -60,7 +60,7 @@ function persist() {
   if (!store.save(state)) toast('Could not save — storage is full or blocked.');
 }
 
-export const APP_VERSION = '2026.10.25-3';
+export const APP_VERSION = '2026.10.25-4';
 
 const app = {
   version: APP_VERSION,
@@ -257,7 +257,6 @@ function renderHome() {
   const ctx = app.model();
   const wk = weekSummary(sessions);
   const plan = currentPlan();
-  const status = planStatus(plan, sessions);
   const today = localDay(new Date());
   const todays = plan.items.filter((i) => i.date === today && !i.moved);
   const tomorrow = localDay(new Date(Date.now() + 86400000));
@@ -311,27 +310,15 @@ function renderHome() {
       </section>` : ''}
 
     ${fresh ? '' : `
-    <section class="card">
-      <div class="card-head"><h2>This week</h2><span class="muted small">${wk.days} of ${profile.weeklyGoal} training days</span></div>
-      <div class="stats4">
-        <div><b>${wk.sessions}</b><span>sessions</span></div>
-        <div><b>${wk.minutes}</b><span>minutes</span></div>
-        <div><b>${wk.punches.toLocaleString()}</b><span>punches</span></div>
-        <div><b>${ws ? ws.avg7 : '–'}</b><span>${esc(profile.unit)} avg</span></div>
-      </div>
-      <div class="bar" role="progressbar" aria-label="Training days this week" aria-valuemin="0" aria-valuemax="${profile.weeklyGoal}" aria-valuenow="${wk.days}"><div style="width:${Math.min(100, (wk.days / profile.weeklyGoal) * 100)}%"></div></div>
-    </section>
-    ${formHTML()}
-
-    ${todays.length ? `<section class="card">
-      <div class="card-head"><h2>Scheduled</h2><a href="#plan">Week →</a></div>
-      ${todays.map((it) => planItemHTML(it, status[it.id] === 'today' ? '' : status[it.id])).join('')}
-    </section>` : ''}
+    <a class="card week-line" href="#progress/charts">
+      <span class="eyebrow" style="margin:0">This week</span>
+      <b>${wk.sessions} session${wk.sessions === 1 ? '' : 's'} · ${wk.minutes} min${wk.punches ? ` · ${wk.punches.toLocaleString()} punches` : ''}</b>
+      <span class="chev">›</span>
+    </a>
 
     ${notes.length ? `
     <section class="card">
-      <h2>Coach notes</h2>
-      <ul class="rows notes-list">${notes.slice(0, 2).map(([ico, title, sub, href]) => `
+      <ul class="rows notes-list">${notes.slice(0, 1).map(([ico, title, sub, href]) => `
         <li><span class="row-ico">${ico}</span><a class="row-main" href="${href}" style="color:inherit;font-weight:400"><b>${esc(title)}</b><span>${esc(sub)}</span></a><span class="chev">›</span></li>`).join('')}</ul>
     </section>` : ''}`}`;
 
@@ -390,7 +377,7 @@ function todayHero({ day, rec, checkin, insight, fix = null, fixStatus = null })
           <span class="ring sm empty"><b>?</b></span>
           <span class="th-t"><span class="th-l">Readiness</span><b>Check in</b><span class="th-s">Sleep, soreness, motivation · 30 s</span></span>
         </button>`}
-      ${insight ? `<a class="th-tile th-insight" href="${insight.href}">
+      ${insight && !(fix && !rest) ? `<a class="th-tile th-insight" href="${insight.href}">
           <span class="th-t"><span class="th-l">${esc(insight.label)}</span><b>${esc(insight.title)}</b>${insight.cta ? `<span class="th-s th-cta">${esc(insight.cta)} →</span>` : ''}</span>
         </a>` : ''}
       ${fuelTile(state, app.trainingToday())}
@@ -450,7 +437,7 @@ function formHTML() {
         ${r.trend ? `<span class="fm-d ${r.trend}">${r.trend === 'flat' ? '≈' : r.delta > 0 ? '▲' : '▼'} ${r.trend === 'flat' ? 'usual' : `${Math.abs(r.delta)}${esc(r.unit)} ${word[r.trend]}`}</span>` : `<span class="fm-d">${r.n ? 'need 2+ sessions' : 'no camera data'}</span>`}
         ${sparkline(r.series)}
       </div>`).join('')}</div>
-    <p class="small muted" style="margin:8px 0 0">Your latest well-tracked session against the ones before it. Punch rate compares ${esc(rows[1].type ? (ALL_TYPES[rows[1].type] || rows[1].type).toLowerCase() : 'like')} sessions only.</p>
+    <p class="small muted" style="margin:8px 0 0">Your last good camera session vs the ones before.</p>
   </section>`;
 }
 
@@ -1787,6 +1774,7 @@ function renderLog() {
   }
   view.innerHTML = `
     ${pageHead('Progress', { eyebrow: `${list.length} sessions`, nav: subnav('progress', PROGRESS_SUBS, 'history') })}
+    ${formHTML()}
     ${testsCardHTML()}
     <section class="card">
       <details class="add">
