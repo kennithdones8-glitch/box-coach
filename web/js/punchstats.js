@@ -2,7 +2,8 @@
 // on. Pure logic. Only numbers the camera measured well count (punchCountOk / trackingOk); punch
 // tests are left out of the mix (they call each punch ten times). Every number carries how many
 // sessions or punches it rests on, and nothing is called a change from thin evidence.
-import { punchCountOk, trackingOk } from './coach.js';
+import { punchCountOk, trackingOk, typesOk } from './coach.js';
+import { typeTrusted } from './trust.js';
 import { PUNCH_NAMES } from './form.js';
 
 export const TYPES = ['jab', 'cross', 'leadHook', 'rearHook', 'leadUppercut', 'rearUppercut'];
@@ -13,18 +14,26 @@ const median = (xs) => { if (!xs.length) return null; const s = [...xs].sort((a,
 const avg = (xs) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null);
 const r1 = (x) => (x == null ? null : Math.round(x * 10) / 10);
 
-// Sessions whose punch counts can be trusted for the mix.
+// Sessions whose punch counts can be trusted; of those, the ones whose punch TYPES can be (filmed
+// from the front or 45°, see typesOk): only those make up the mix and the per-punch numbers.
 const counted = (s) => s.punches?.byType && s.source !== 'manual' && !s.test && punchCountOk(s);
+const typed = (s) => counted(s) && typesOk(s);
 
 function period(sessions) {
   const cam = sessions.filter(counted);
-  const byType = Object.fromEntries(TYPES.map((t) => [t, 0]));
-  for (const s of cam) for (const t of TYPES) byType[t] += s.punches.byType[t] || 0;
-  const total = TYPES.reduce((a, t) => a + byType[t], 0);
+  const typedS = cam.filter(typesOk);
+  const sum = (list) => {
+    const by = Object.fromEntries(TYPES.map((t) => [t, 0]));
+    for (const s of list) for (const t of TYPES) by[t] += s.punches.byType[t] || 0;
+    return by;
+  };
+  const allBy = sum(cam), byType = sum(typedS);
+  const total = TYPES.reduce((a, t) => a + allBy[t], 0);
+  const typedTotal = TYPES.reduce((a, t) => a + byType[t], 0);
   const minutes = cam.reduce((a, s) => a + (s.workSec || 0) / 60, 0);
   // Fist speed per punch (m/s), from the per-punch rows kept on recent sessions.
   const speeds = Object.fromEntries(TYPES.map((t) => [t, []]));
-  for (const s of cam) for (const row of s.calib?.punches || []) {
+  for (const s of typedS) for (const row of s.calib?.punches || []) {
     const t = DIGIT_TYPE[row[0]];
     if (t && row[1] > 0 && row[1] < 14) speeds[t].push(row[1]);
   }
@@ -32,7 +41,7 @@ function period(sessions) {
   const f = (k) => avg(form.map((s) => s.form[k]).filter((v) => v != null && Number.isFinite(v)));
   const feintS = form.filter((s) => s.form.feintsPerMin != null);
   return {
-    sessions: cam.length, total, byType, minutes,
+    sessions: cam.length, typedSessions: typedS.length, total, typedTotal, byType, minutes,
     ppm: minutes ? Math.round(total / minutes) : null,
     speeds,
     leadReturn: f('leadReturnMs'), rearReturn: f('rearReturnMs'), rearDrop: f('rearDropPct'), comboShare: f('comboShare'),
@@ -64,14 +73,15 @@ export function punchStats(sessions, { days = 30, now = new Date() } = {}) {
   const A = period(cur), B = period(prev);
   const reads = readRates(sessions);
   const types = TYPES.map((type) => {
-    const n = A.byType[type], share = A.total ? Math.round((100 * n) / A.total) : null;
-    const pShare = B.total >= 50 ? Math.round((100 * B.byType[type]) / B.total) : null;
+    const n = A.byType[type], share = A.typedTotal ? Math.round((100 * n) / A.typedTotal) : null;
+    const pShare = B.typedTotal >= 50 ? Math.round((100 * B.byType[type]) / B.typedTotal) : null;
     const sp = A.speeds[type].length >= 5 ? r1(median(A.speeds[type])) : null;
     const pSp = B.speeds[type].length >= 5 ? r1(median(B.speeds[type])) : null;
     const lead = LEAD.has(type);
     return {
       type, name: PUNCH_NAMES[type], lead, n, share,
-      shareDelta: share != null && pShare != null && A.total >= 50 ? share - pShare : null,
+      shareDelta: share != null && pShare != null && A.typedTotal >= 50 ? share - pShare : null,
+      trusted: typeTrusted(type), // the camera calls this type right often enough to coach from
       speed: sp, speedN: A.speeds[type].length, speedDelta: sp != null && pSp != null ? r1(sp - pSp) : null,
       returnMs: lead ? (A.leadReturn != null ? Math.round(A.leadReturn) : null) : (A.rearReturn != null ? Math.round(A.rearReturn) : null),
       read: reads?.rates[type] ?? null,
@@ -79,10 +89,11 @@ export function punchStats(sessions, { days = 30, now = new Date() } = {}) {
     };
   });
   // What each punch needs, from the evidence (strongest first). Needs enough punches to say.
-  const enough = A.total >= 100;
+  const enough = A.typedTotal >= 100;
   const byKey = Object.fromEntries(types.map((x) => [x.type, x]));
   if (A.rearDrop != null && A.rearDrop > 25 && A.formSessions >= 2) byKey.jab.focus.push({ key: 'rearDrop', text: `Rear hand drops on ${Math.round(A.rearDrop)}% of your jabs` });
   for (const x of types) {
+    if (!x.trusted) continue; // a type the camera often gets wrong isn't a fact to coach from
     if (enough && x.share != null && x.share < (x.type.includes('Uppercut') ? 3 : 6)) x.focus.push({ key: 'underused', text: `Only ${x.share}% of your punches` });
     if (x.speedDelta != null && x.speed && x.speedDelta <= -0.4) x.focus.push({ key: 'slower', text: `Slower than last period (${x.speedDelta} m/s)` });
     // Hand return is per hand, so it's flagged once: on the jab (lead) and the cross (rear).
@@ -90,7 +101,7 @@ export function punchStats(sessions, { days = 30, now = new Date() } = {}) {
   }
   // Improvements and slips against the period before, only from real comparisons.
   const changes = [];
-  for (const x of types) {
+  for (const x of types.filter((t) => t.trusted)) {
     if (x.speedDelta != null && Math.abs(x.speedDelta) >= 0.3) changes.push({ text: `${x.name} speed ${x.speedDelta > 0 ? 'up' : 'down'} ${Math.abs(x.speedDelta)} m/s`, good: x.speedDelta > 0, size: Math.abs(x.speedDelta) / 0.3 });
     if (x.shareDelta != null && Math.abs(x.shareDelta) >= 4) changes.push({ text: `${x.name}: ${Math.abs(x.shareDelta)}% ${x.shareDelta > 0 ? 'more' : 'less'} of your output`, good: null, size: Math.abs(x.shareDelta) / 4 });
   }
@@ -106,7 +117,7 @@ export function punchStats(sessions, { days = 30, now = new Date() } = {}) {
   if (A.ppm != null && B.ppm != null && A.sessions >= 2 && B.sessions >= 2 && Math.abs(A.ppm - B.ppm) >= 4) changes.push({ text: `Output ${A.ppm - B.ppm > 0 ? '+' : ''}${A.ppm - B.ppm} punches/min`, good: A.ppm > B.ppm, size: Math.abs(A.ppm - B.ppm) / 4 });
   changes.sort((a, b) => b.size - a.size);
   return {
-    days, sessions: A.sessions, prevSessions: B.sessions, total: A.total, ppm: A.ppm,
+    days, sessions: A.sessions, prevSessions: B.sessions, typedSessions: A.typedSessions, total: A.total, typedTotal: A.typedTotal, ppm: A.ppm,
     comboShare: A.comboShare != null ? Math.round(A.comboShare) : null,
     feintsPerMin: A.feintsPerMin, feints: A.feints, feintSetups: A.feintSetups,
     leadReturn: A.leadReturn != null ? Math.round(A.leadReturn) : null, rearReturn: A.rearReturn != null ? Math.round(A.rearReturn) : null,
@@ -175,7 +186,7 @@ const DRILL_METRICS = {
   slower: { key: 'speed', label: 'Speed', unit: ' m/s', better: 1, min: 0.3 },
 };
 function sideStats(sessions, type) {
-  const cam = sessions.filter(counted);
+  const cam = sessions.filter(typed);
   const total = cam.reduce((a, s) => a + TYPES.reduce((b, t) => b + (s.punches.byType[t] || 0), 0), 0);
   const n = cam.reduce((a, s) => a + (s.punches.byType[type] || 0), 0);
   const speeds = [];

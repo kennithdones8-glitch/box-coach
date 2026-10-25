@@ -48,10 +48,30 @@ function merge(base, data) {
     settings: { ...base.settings, ...(data.settings || {}) },
     coach: { ...base.coach, ...(data.coach || {}) },
     memory: { ...base.memory, ...(data.memory || {}) },
-    ...Object.fromEntries(ARRAYS.map((k) => [k, Array.isArray(data[k]) ? data[k] : []])),
+    ...Object.fromEntries(ARRAYS.map((k) => [k, Array.isArray(data[k]) ? data[k].filter((x) => sound(k, x)) : []])),
     plans: data.plans && typeof data.plans === 'object' ? data.plans : {},
   };
 }
+
+// A record the app can use: an object, and a session needs a real date (screens sort and group
+// by it). Anything else is set aside (QUARANTINE), never silently dropped.
+const okDate = (d) => typeof d === 'string' && !Number.isNaN(new Date(d).getTime());
+function sound(k, x) {
+  return !!x && typeof x === 'object' && !Array.isArray(x) && (k !== 'sessions' || okDate(x.date));
+}
+export const QUARANTINE = 'boxcoach.quarantine';
+function setAside(data, storage) {
+  const bad = {};
+  for (const k of ARRAYS) if (Array.isArray(data?.[k])) { const b = data[k].filter((x) => !sound(k, x)); if (b.length) bad[k] = b; }
+  const n = Object.values(bad).reduce((a, b) => a + b.length, 0);
+  if (!n) return 0;
+  try {
+    const old = JSON.parse(storage.getItem(QUARANTINE) || 'null');
+    storage.setItem(QUARANTINE, JSON.stringify({ at: new Date().toISOString(), records: bad, earlier: old || undefined }));
+  } catch { /* can't keep them: still never crash on them */ }
+  return n;
+}
+export let setAsideCount = 0;
 
 // If the saved data can't be read (cut short by a full phone, say), it's kept under RESCUE rather
 // than overwritten by the next save, and load reports it so the app can say so.
@@ -61,11 +81,15 @@ export let loadProblem = null;
 
 export function load(storage = globalThis.localStorage) {
   loadProblem = null;
+  setAsideCount = 0;
   let raw = null;
   try {
     raw = storage?.getItem(KEY);
     if (!raw) return defaultState();
-    return merge(defaultState(), JSON.parse(raw));
+    const data = JSON.parse(raw);
+    setAsideCount = setAside(data, storage);
+    if (setAsideCount) loadProblem = 'setAside';
+    return merge(defaultState(), data);
   } catch {
     if (raw) {
       try { storage.setItem(RESCUE, raw); loadProblem = 'rescued'; } catch { loadProblem = 'unreadable'; }

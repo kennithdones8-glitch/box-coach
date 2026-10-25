@@ -3,13 +3,14 @@
 import { FormAnalyzer, PUNCH_DIGIT, combineRounds, sequencesFrom, streamFrom, comboStats, PUNCH_NAMES, choosePose, PersonTracker, personAt } from '../form.js';
 import { ALL_TYPES } from '../coach.js';
 import { $, $$, esc, opt, toast } from '../ui.js';
-import { newId } from '../store.js';
+import { newId, saveDraft, clearDraft } from '../store.js';
 import { comboLabel, comboText, parseCombo, STARTERS } from '../combos.js';
 import { calibrateFromCombo, trustedCal } from '../calibrate.js';
 import { harvest, addExamples, spotModel } from '../personal.js';
 import { saveReference } from './study.js';
 import { takePreset } from './handoff.js';
 import { drawBody } from '../pose.js';
+import { playPlan, steer } from '../flow.js';
 import { buildReport } from '../report.js';
 import { FrameSheets, aiKey, checkWithClaude, applyAi, AI_MODELS, chatSheets, CHAT_PHOTOS } from '../aicheck.js';
 
@@ -17,6 +18,8 @@ let job = null; // { analyzer, events, rounds, meta } after analysis
 let busy = false;
 // True while a video is being analysed or waits for review: an app update must not reload then.
 export const videoBusy = () => busy || !!job;
+// The last analysis, for diagnostics and benchmarks (read-only use).
+export const videoJob = () => job;
 
 // Quick adds not saved yet can be picked straight from the video form; picking one saves it.
 const unsavedStarters = (app) => STARTERS.filter((t) => !app.state.combos.some((c) => comboText(c.tokens) === comboText(parseCombo(t))));
@@ -91,6 +94,7 @@ export function renderVideo(el, app) {
   }
   $('#vidForm', el).addEventListener('submit', (e) => {
     e.preventDefault();
+    if (busy) return; // a second tap while one is starting: one analysis at a time
     const f = e.target;
     const file = f.file.files[0];
     if (!file) return;
@@ -132,8 +136,7 @@ function sampleLooks(frame, people) {
   const fw = frame.videoWidth || frame.width, fh = frame.videoHeight || frame.height;
   if (!people.length || !fw) return [];
   const w = 96, h = Math.round((96 * fh) / fw);
-  sampler.width = w;
-  sampler.height = h;
+  if (sampler.width !== w || sampler.height !== h) { sampler.width = w; sampler.height = h; } // resizing clears and reallocates
   const g = sampler.getContext('2d', { willReadFrequently: true });
   try {
     g.drawImage(frame, 0, 0, w, h);
@@ -333,6 +336,7 @@ async function analyse(file, video, opts, el, app) {
     const cost = { grab: 0, looks: 0, sheets: 0, analyse: 0, draw: 0 }; // ms per step, for the report
     const lap = (k, t0) => { const t1 = performance.now(); cost[k] += t1 - t0; return t1; };
     let detectMs = 0, asks = 0, askedThisLoss = false, foundAt = -Infinity, wasLost = false, unsureN = 0;
+    let lastDraw = -Infinity, punchCount = 0, seenEvents = 0;
 
     // Analyse one frame. Returns the people in it (and their looks) when the boxer has been lost
     // long enough that it's worth asking them to tap themselves again.
@@ -381,11 +385,14 @@ async function analyse(file, video, opts, el, app) {
       frames++;
       analyzer.update(world || null, image, t);
       c0 = lap('analyse', c0);
-      drawPeople(overlay, video, people, idx);
+      // The overlay is only a preview: drawn at most ~12 times a second, never while hidden.
+      if (c0 - lastDraw >= 80 && !document.hidden) { drawPeople(overlay, video, people, idx); lastDraw = c0; }
       lap('draw', c0);
       if (frames % 5 === 0) {
         $('#vidBar', el).style.width = `${Math.min(100, (t / durMs) * 100)}%`;
-        status.textContent = `Analysing ${fmtT(t)} / ${fmtT(durMs)} · ${analyzer.events.filter((e) => e.kind === 'punch').length} punches · body found in ${Math.round((tracked / frames) * 100)}% of frames`;
+        const nPunches = analyzer.events.length === seenEvents ? punchCount : (punchCount += analyzer.events.slice(seenEvents).filter((e) => e.kind === 'punch').length);
+        seenEvents = analyzer.events.length;
+        status.textContent = `Analysing ${fmtT(t)} / ${fmtT(durMs)} · ${nPunches} punches · body found in ${Math.round((tracked / frames) * 100)}% of frames`;
       }
       const lostFor = tracker.lostSince != null ? t - tracker.lostSince : 0;
       if (tracker.crowd && idx < 0 && people.length && lostFor > 2500 && !askedThisLoss && asks < 6) {
@@ -414,8 +421,11 @@ async function analyse(file, video, opts, el, app) {
       // frame is ever missed.
       // A phone that can't analyse a frame in well under the time between frames steps from the start.
       const typical = scanCosts.length > 1 ? scanCosts.slice(1).sort((a, b) => a - b)[Math.floor((scanCosts.length - 1) / 2)] : 0;
-      mode = typical * 1.5 > gap + 5 ? 'step' : 'flow';
-      let rate = 1, wanted = 0, missed = 0, prevT = null, slow = 0, settled = 0, stopAway = () => {};
+      // A phone a bit slower than the frames we want plays the video slowed down rather than
+      // pausing on every frame (see flow.js).
+      const plan = playPlan(typical, gap + 5);
+      mode = plan.mode;
+      let rate = plan.rate, wanted = 0, missed = 0, prevT = null, slow = 0, settled = 0, stopAway = () => {};
       let watchdog = null, asking = false, away = false, waiting = false;
       await new Promise((resolve, reject) => {
         let gotFrame = false;
@@ -469,7 +479,7 @@ async function analyse(file, video, opts, el, app) {
               if (prevT != null) {
                 const step = t - prevT, n = Math.round(step / (gap + 5));
                 if (++settled > 10) { wanted += Math.max(1, n); missed += Math.max(0, n - 1); }
-                rate = Math.min(2.5, Math.max(0.5, n <= 1 ? rate + 0.005 : rate * 0.8)); // creep up, back off fast
+                rate = steer(rate, n); // creep up, back off fast
               }
               prevT = t;
               flowRate = rate;
@@ -496,6 +506,7 @@ async function analyse(file, video, opts, el, app) {
         waiting = true;
         video.requestVideoFrameCallback(onFrame);
         video.currentTime = 0;
+        if (mode === 'flow') { video.playbackRate = rate; flowRate = rate; }
         video.play().catch(() => reject(new Error('The video would not play. Tap Analyse again.')));
         setTimeout(() => { if (!gotFrame && !cancelled) reject(new Error('The video did not start playing. Tap Analyse again.')); }, 15000);
         $('#vidCancel', el).addEventListener('click', () => reject(new Error('cancelled')));
@@ -580,6 +591,10 @@ async function analyse(file, video, opts, el, app) {
       stance: opts.stance, drill: opts.drill ? comboText(opts.drill.tokens) : null,
       sheets: sheets.sheets, ai: opts.ai ? { state: 'pending' } : null, sig: analyzer.sig,
     };
+    // Minutes of analysis shouldn't vanish if the phone reloads the app before you review it:
+    // the result as the camera read it is kept as an unsaved session (recovered on next open).
+    // The video itself can't be kept, so your review edits start again from there.
+    if (opts.subject !== 'pro') saveDraft(buildSession(job));
     app.rerender();
   } catch (err) {
     video.pause();
@@ -681,7 +696,7 @@ function bindDetections(el, j, { label, chip }) {
         <button type="button" class="btn sm ${e.keep ? 'ghost' : 'primary'}" data-set="none">${e.kind === 'punch' ? 'Not a punch' : 'Remove'}</button>
         ${e.kind !== 'punch' && !e.keep ? '<button type="button" class="btn sm ghost" data-set="keep">Keep</button>' : ''}
         <button type="button" class="btn sm ghost" data-replay>↺ Replay</button></div>
-      ${e.kind === 'punch' ? `<p class="small muted" style="margin:6px 0 0">${lead(e) ? 'Lead' : 'Rear'} hand · read as ${esc(PUNCH_NAMES[e.type])} (${e.conf}%)${e.typeUnsure ? ', back to the camera' : ''}.</p>` : ''}`;
+      ${e.kind === 'punch' ? `<p class="small muted" style="margin:6px 0 0">${lead(e) ? 'Lead' : 'Rear'} hand · read as ${esc(PUNCH_NAMES[e.type])} (${e.conf}%)${e.typeUnsure ? (e.typeUnsure === 'side' ? ', side-on to the camera: the type is a guess' : ', back to the camera: the type is a guess') : ''}.</p>` : ''}`;
     editor.querySelectorAll('[data-set]').forEach((b) => b.addEventListener('click', () => {
       const k = b.dataset.set;
       if (k === 'none') e.keep = false;
@@ -804,7 +819,7 @@ function renderReview(el, app) {
             <span class="ev-t num">${fmtT(e.t)}</span>
             <span class="pnum k-${e.kind}">${chip(e)}</span>
             <span class="ev-name">${esc(label(e))}</span>
-            ${e.typeUnsure ? '<span class="badge est" title="Thrown with your back to the camera: the punch type is a guess">type?</span>' : `<span class="conf-m ${e.conf >= 80 ? 'good' : e.conf >= 60 ? 'warn' : 'bad'}" title="Confidence ${e.conf}%"><i style="width:${e.conf}%"></i><span>${e.conf}%</span></span>`}
+            ${e.typeUnsure ? `<span class="badge est" title="${e.typeUnsure === 'side' ? 'Side-on to the camera' : 'Thrown with your back to the camera'}: the punch type is a guess">type?</span>` : `<span class="conf-m ${e.conf >= 80 ? 'good' : e.conf >= 60 ? 'warn' : 'bad'}" title="How clearly the camera saw this punch: ${e.conf}%. It doesn't say the punch type is right."><i style="width:${e.conf}%"></i><span>${e.conf}%</span></span>`}
           </button>
           ${e.ai ? `<span class="badge ai" title="Checked by Claude">${e.ai === 'added' ? 'Claude: missed' : e.ai === 'none' ? 'Claude: not a punch' : e.ai === 'same' ? 'Claude ✓' : 'Claude fixed'}</span>` : ''}
         </li>`).join('')}</ul>
@@ -836,6 +851,7 @@ function renderReview(el, app) {
     j.aiAbort?.abort();
     URL.revokeObjectURL(j.url);
     job = null;
+    clearDraft();
     app.rerender();
   });
   $('#vidSave', el).addEventListener('click', () => {

@@ -89,6 +89,14 @@ export function trackingOk(s) {
 // Punch counts also need the boxer alone in shot: with a partner in frame (pads, sparring) some
 // of the partner's movement can still be read as punches.
 export const punchCountOk = (s) => trackingOk(s) && !(s?.calib?.multi >= 20);
+// Punch TYPES need more than a count: the camera has to see the punch's shape. Filmed side-on,
+// labelled pads footage had 23% of types right, worse than guessing jab for the lead hand and
+// cross for the rear (53%); with your back to the camera, jabs read as hooks. So a session's punch
+// mix only counts when it was mostly filmed from the front or 45°. (60% is the share the app
+// already calls "filmed side-on".)
+export const SIDE_ON_PCT = 60;
+export const AWAY_PCT = 25;
+export const typesOk = (s) => punchCountOk(s) && !(s?.form?.sidePct >= SIDE_ON_PCT) && !(s?.form?.awayPct >= AWAY_PCT);
 
 export function returnScore(ms) {
   if (ms == null) return null;
@@ -102,7 +110,9 @@ export function clamp(v, lo, hi) {
 
 export function scoreSession(session, profile = {}) {
   const scores = {};
-  const f = session.form;
+  // Nothing is scored from a session the camera didn't track well (it would be a confident
+  // number from a guess): the session still counts, just without form scores.
+  const f = trackingOk(session) ? session.form : null;
   if (f) {
     scores.guard = f.guard;
     scores.stance = f.stance;
@@ -111,7 +121,7 @@ export function scoreSession(session, profile = {}) {
     scores.head = f.head == null ? null : clamp(Math.round(f.head * 1.6), 0, 100);
     scores.handReturn = returnScore(f.handReturnMs);
   }
-  const ppm = outputPpm(session);
+  const ppm = punchCountOk(session) ? outputPpm(session) : null;
   if (ppm != null && session.type !== 'sparring') {
     const target = PPM_TARGET[profile.level] || PPM_TARGET.beginner;
     scores.output = clamp(Math.round((ppm / target) * 100), 0, 100);
@@ -142,7 +152,7 @@ export const INSIGHTS = {
 
 export function detectPatterns(session) {
   const found = [];
-  const f = session.form;
+  const f = trackingOk(session) ? session.form : null;
   if (f) {
     const rounds = (f.perRound || []).filter((r) => r.frames > 0);
     if (rounds.length >= 3) {
@@ -161,7 +171,7 @@ export function detectPatterns(session) {
   const per = session.punches?.perRound || [];
   if (per.length >= 3 && per[0] >= 20 && per[per.length - 1] < per[0] * 0.7) found.push('outputFade');
   // Punch mix on pads or in a drilled combo is set by the holder or the combo, not your habits.
-  const by = session.type === 'mitts' || session.calib?.labels ? null : session.punches?.byType;
+  const by = session.type === 'mitts' || session.calib?.labels || !typesOk(session) ? null : session.punches?.byType;
   if (by) {
     const total = Object.values(by).reduce((a, b) => a + b, 0);
     if (total >= 40) {
@@ -321,7 +331,7 @@ export function feedback(session, history, mem, profile = {}) {
     if (avg != null && avg - v >= 10) fixes.push(`${AREAS[area]} slipped to ${v} (you usually sit around ${Math.round(avg)}).`);
   }
 
-  const f = session.form;
+  const f = trackingOk(session) ? session.form : null;
   if (f) {
     if (f.guard != null && f.guard < TARGETS.guard) fixes.push(`Hands were up ${f.guard}% of the time between punches. Aim for 80%+.`);
     if (f.rearDropPct != null && f.rearDropPct >= 25) fixes.push(`Your rear hand dropped on ${f.rearDropPct}% of lead-hand punches.`);
@@ -351,8 +361,10 @@ export function feedback(session, history, mem, profile = {}) {
   }
   fixes.unshift(...recurring);
 
+  // Drills for your focus area, only when this session actually measured that area (a timer-only
+  // session doesn't get the same technique drills again).
   const focusArea = mem?.focus?.area;
-  const drills = focusArea ? DRILLS[focusArea].slice(0, 2) : [];
+  const drills = focusArea && scores[focusArea] != null ? DRILLS[focusArea].slice(0, 2) : [];
   if (!wins.length) wins.push('You showed up and put the work in. That compounds.');
   return { wins: dedupe(wins), fixes: dedupe(fixes).slice(0, 6), drills };
 }

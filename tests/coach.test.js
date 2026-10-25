@@ -169,3 +169,20 @@ test('records only come from well-measured sessions (a sparring clip reading the
   const lost = { ...solo, calib: { frames: 400, tracked: 150 } };
   assert.equal(updateMemory(emptyMemory(), lost, {}).memory.prs.bestPpm, undefined);
 });
+
+test('no form scores, habits or form fixes from a session the camera lost you in', () => {
+  const lost = { type: 'shadow', tracking: 'camera', source: 'video', workSec: 540, completedRounds: 3, plan: { rounds: 3 },
+    punches: { total: 300, perRound: [100, 100, 100] }, form: { guard: 30, footwork: 5, handReturnMs: 900, perRound: [{ frames: 200, guard: 90 }, { frames: 200, guard: 60 }, { frames: 200, guard: 30 }] },
+    calib: { frames: 1000, tracked: 400 } };
+  const sc = scoreSession(lost);
+  assert.equal(sc.guard, undefined);
+  assert.equal(sc.output, undefined, 'punch rate from a badly tracked session is not scored either');
+  assert.deepEqual(detectPatterns(lost), []);
+  const fb = feedback(lost, [], { insights: {}, focus: { area: 'guard' } });
+  assert.ok(!fb.fixes.some((t) => /Hands were up|stood still|Hands took/.test(t)), fb.fixes.join(' | '));
+  assert.deepEqual(fb.drills, [], 'no guard drills from a session that measured nothing');
+  // The same session tracked well does get them.
+  const ok = { ...lost, calib: { frames: 1000, tracked: 950 } };
+  assert.equal(scoreSession(ok).guard, 30);
+  assert.ok(feedback(ok, [], { insights: {}, focus: { area: 'guard' } }).fixes.some((t) => /Hands were up 30%/.test(t)));
+});

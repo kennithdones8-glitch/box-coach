@@ -123,7 +123,7 @@ test('fuel: height, age and sex give a closer estimate; meal ideas fit what is l
   assert.match(fightWeek(1).join(' '), /coach/);
 });
 
-test('XP and levels come from sessions; day streak counts days in a row', () => {
+test('XP and levels come from sessions; the streak counts training days and allows rest', () => {
   assert.equal(sessionXp({ completedRounds: 3 }), 50);
   assert.equal(sessionXp({ completedRounds: 3, program: { id: 'x' } }), 90);
   assert.equal(levelOf(0).name, 'Rookie');
@@ -131,13 +131,17 @@ test('XP and levels come from sessions; day streak counts days in a row', () => 
   assert.equal(levelOf(850).pct, 6);
   assert.equal(levelOf(99999).next, null);
   assert.equal(LEVELS.length, 9);
-  const food = [1, 2, 3].map(() => ({ day: '2026-10-10' }));
+  const food = [1, 2, 3].map(() => ({ day: '2026-10-10', kcal: 200 }));
   assert.equal(xpTotal([{ completedRounds: 3 }], food), 65, 'a day of food logging adds a little');
+  assert.equal(xpTotal([], [1, 2, 3].map(() => ({ day: '2026-10-10', water: 250 }))), 0, 'logging water three times is not a food day');
+  assert.equal(xpTotal([{ id: 'a', completedRounds: 3 }, { id: 'a', completedRounds: 3 }]), 50, 'a session saved twice counts once');
   const now = new Date(2026, 9, 12, 20);
   const at = (d) => new Date(2026, 9, d, 18).toISOString();
   assert.equal(dayStreak([at(10), at(11), at(12)].map((date) => ({ date })), now), 3);
   assert.equal(dayStreak([at(10), at(11)].map((date) => ({ date })), now), 2, 'not trained yet today: the streak still stands');
-  assert.equal(dayStreak([at(9), at(11)].map((date) => ({ date })), new Date(2026, 9, 13, 9)), 0);
+  // Rest days don't break it (up to 2 in a row): resting is part of training.
+  assert.equal(dayStreak([at(9), at(11)].map((date) => ({ date })), new Date(2026, 9, 13, 9)), 2);
+  assert.equal(dayStreak([at(5), at(6)].map((date) => ({ date })), now), 0, 'three rest days in a row end it');
 });
 
 test('program reminders: a calendar event per remaining session on the chosen days', () => {
@@ -172,4 +176,12 @@ test('stopwatch: pause, resume and laps on wall-clock time', () => {
   w.reset();
   assert.equal(w.elapsed(), 0);
   assert.equal(w.running, false);
+});
+
+test('fuel: nothing logged means no grade, not an F', () => {
+  const tg = targets({ kg: 80 });
+  const g = gradeDay([{ water: 500 }], tg, { now: new Date(2026, 9, 12, 18, 0) });
+  assert.equal(g.early, true);
+  assert.equal(g.nothing, true);
+  assert.equal(g.letter, undefined);
 });

@@ -2,7 +2,7 @@
 // equipment and energy they have, adjust it round by round, judge it afterwards and move the
 // drill ladder up or down. Pure logic (no DOM), so it is fully testable.
 import { CONSTRAINTS, HIT_REASONS } from './library.js';
-import { INSIGHTS, outputPpm, BOXING_TYPES } from './coach.js';
+import { INSIGHTS, outputPpm, BOXING_TYPES, trackingOk, typesOk } from './coach.js';
 
 const DAY = 86400000;
 const mean = (xs) => {
@@ -26,10 +26,15 @@ export const METRICS = {
   callsExact: { name: 'Called combos thrown right', unit: '%', better: 'up' },
 };
 
-const cameraForm = (s) => (s.form && (s.tracking === 'camera' || s.source === 'video') && s.form.perRound?.some((r) => r.frames > 30) ? s.form : null);
+// Camera numbers only from a session the camera tracked well (see trackingOk): a pass, a fail or
+// "taking hold" is never read from a session where the boxer was lost or hidden.
+const cameraForm = (s) => (s.form && (s.tracking === 'camera' || s.source === 'video') && s.form.perRound?.some((r) => r.frames > 30) && trackingOk(s) ? s.form : null);
+// Measurements that rest on telling punch types apart (which combo, which opener).
+const NEEDS_TYPES = new Set(['callsExact', 'opener']);
 
-// One number for a session, or null when it wasn't measured.
+// One number for a session, or null when it wasn't measured (or not measured well enough).
 export function metricOf(s, key) {
+  if (NEEDS_TYPES.has(key) && !typesOk(s)) return null; // side-on or from behind: types are guesses
   const f = cameraForm(s);
   if (key === 'callsExact') {
     const calls = s.comboCalls || [];
@@ -231,15 +236,24 @@ export function adoption(state, root, now = new Date()) {
   const since = state.coach?.assigned?.[root];
   const key = ROOTS[root]?.metric;
   if (!since || !key) return null;
-  const cam = (state.sessions || []).filter((s) => cameraForm(s) || s.comboCalls);
-  const before = cam.filter((s) => s.date < since).slice(-5).map((s) => metricOf(s, key)).filter((v) => v != null);
-  const after = cam.filter((s) => s.date >= since && +new Date(s.date) <= +now).map((s) => metricOf(s, key)).filter((v) => v != null);
-  if (!after.length) return { sessions: 0, text: 'Not tested yet: do a camera session with this focus.' };
+  const all = (state.sessions || []).filter((s) => (cameraForm(s) || s.comboCalls) && metricOf(s, key) != null);
+  const afterAll = all.filter((s) => s.date >= since && +new Date(s.date) <= +now);
+  if (!afterAll.length) return { sessions: 0, text: 'Not tested yet: do a camera session with this focus.' };
+  // Like with like: bag and shadow numbers differ, so compare the kind of session you did last,
+  // when there are two of it on each side.
+  const kind = afterAll.at(-1).type;
+  const same = (list) => list.filter((s) => s.type === kind);
+  const beforeAll = all.filter((s) => s.date < since);
+  const useSame = same(beforeAll).length >= 2 && same(afterAll).length >= 2;
+  const before = (useSame ? same(beforeAll) : beforeAll).slice(-5).map((s) => metricOf(s, key));
+  const after = (useSame ? same(afterAll) : afterAll).map((s) => metricOf(s, key));
   const a = before.length ? round(mean(before)) : null, b = round(mean(after.slice(-3)));
   const m = METRICS[key];
   const target = ROOTS[root].ladder[0].target;
   const better = a == null ? null : m.better === 'up' ? b - a : a - b;
-  const status = better == null ? (meets(key, b, target) ? 'good' : 'early') : better >= 5 ? 'taking' : better <= -5 ? 'worse' : 'flat';
+  // A change is only claimed from 2+ measured sessions on each side; before that it's early days.
+  const enough = before.length >= 2 && after.length >= 2;
+  const status = !enough ? (after.length >= 2 && meets(key, b, target) ? 'good' : 'early') : better >= 5 ? 'taking' : better <= -5 ? 'worse' : 'flat';
   const word = { good: 'looking good', early: 'early days', taking: 'taking hold', worse: 'slipping', flat: 'not changed yet' }[status];
   return { sessions: after.length, before: a, after: b, status, text: `${m.name}: ${a != null ? `${a}${m.unit} → ` : ''}${b}${m.unit} over ${after.length} session${after.length === 1 ? '' : 's'}, ${word}.` };
 }

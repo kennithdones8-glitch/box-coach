@@ -63,14 +63,15 @@ export function renderPunches(el, app) {
     <section class="card">
       <div class="card-head"><h2>Punch mix</h2>${days ? `<span class="muted small">vs ${vsTxt}</span>` : ''}</div>
       <div class="mix">${st.types.map((x) => `
-        <div class="mix-row">
+        <div class="mix-row ${x.trusted ? '' : 'unv'}">
           <span class="pnum">${PUNCH_DIGIT[x.type]}</span>
-          <span class="mix-name">${esc(x.name)}</span>
+          <span class="mix-name">${esc(x.name)}${x.trusted ? '' : ' <em class="unv-tag" title="The camera often mistakes this punch for another">unverified</em>'}</span>
           <div class="mix-bar"><div style="width:${((x.share || 0) / max) * 100}%"></div></div>
           <b class="num">${x.share ?? 0}%</b>
           ${delta(x.shareDelta, '', 0) || '<span class="dl"></span>'}
         </div>`).join('')}</div>
-      <p class="small muted" style="margin:8px 0 0">${st.total.toLocaleString()} punches from ${st.sessions} session${st.sessions === 1 ? '' : 's'}.${st.reads ? ` Camera read rates from your punch test on ${esc(shortDate(st.reads.date))}.` : ' Do a punch test to see how well the camera reads each punch.'}</p>
+      ${st.typedSessions < st.sessions ? `<p class="small warn-note" style="margin:8px 0 0">${st.typedSessions ? `Punch types come from ${st.typedSessions} of your ${st.sessions} sessions:` : 'No punch types yet:'} the rest were filmed side-on or from behind, where the camera can't tell a cross from a hook. Film from the front or at 45° to get them.</p>` : ''}
+      <p class="small muted" style="margin:8px 0 0">${st.typedTotal.toLocaleString()} of ${st.total.toLocaleString()} punches typed, from ${st.typedSessions} session${st.typedSessions === 1 ? '' : 's'}. "Unverified" types are often misread for another punch, so they're shown but never coached from.${st.reads ? ` Camera read rates from your punch test on ${esc(shortDate(st.reads.date))}.` : ' Do a punch test to see how well the camera reads each punch.'}</p>
     </section>
 
     <section class="card">
@@ -85,7 +86,7 @@ export function renderPunches(el, app) {
     <section class="card punch-card ${x.focus.length ? 'has-focus' : ''}">
       <button class="pc-head" type="button" data-open="${x.type}" aria-expanded="${open === x.type}">
         <span class="pnum big">${PUNCH_DIGIT[x.type]}</span>
-        <span class="pc-name"><b>${esc(x.name)}</b><span>${x.lead ? 'Lead hand' : 'Rear hand'}${x.focus.length ? ' · <em>work on this</em>' : ''}</span></span>
+        <span class="pc-name"><b>${esc(x.name)}</b><span>${x.lead ? 'Lead hand' : 'Rear hand'}${x.focus.length ? ' · <em>work on this</em>' : x.trusted ? '' : ' · unverified type'}</span></span>
         <span class="chev">${open === x.type ? '▾' : '›'}</span>
       </button>
       <div class="pc-stats">

@@ -1,7 +1,7 @@
 import * as store from './store.js';
 import {
   AREAS, TARGETS, ALL_TYPES, BOXING_TYPES, INSIGHTS,
-  scoreSession, feedback, updateMemory, nextCombo, comboToSpeech, weekSummary, outputPpm, speedText,
+  scoreSession, feedback, updateMemory, nextCombo, comboToSpeech, weekSummary, outputPpm, speedText, typesOk,
 } from './coach.js';
 import { FormAnalyzer, combineRounds, PUNCH_NAMES } from './form.js';
 import { requestMotionPermission, startMotion, motionSupported } from './motion.js';
@@ -20,7 +20,7 @@ import { $, $$, esc, fmtDate, shortDate, toast, scoreClass, scoreChip, subnav, s
 import { reviewFieldsHTML, bindReview, readReview } from './views/review.js';
 import { buildReport, reportSize } from './report.js';
 import { safetyNotes, isStandalone, isIOS, askPersist } from './safety.js';
-import { adjustNextRound, evaluateCoached, applyEvaluation, drillFor, BENCHMARK, applyOnboarding, ONBOARD, EQUIPMENT } from './coachme.js';
+import { adjustNextRound, evaluateCoached, applyEvaluation, drillFor, BENCHMARK, applyOnboarding, ONBOARD, EQUIPMENT, detectWeaknesses, adoption } from './coachme.js';
 import { trustedCal } from './calibrate.js';
 import { installErrorLog } from './bugreport.js';
 
@@ -39,6 +39,7 @@ import { cardData, shareCard } from './sharecard.js';
 import { line as voiceLine, hasLine } from './voice.js';
 import { recentForm, sparkline } from './trends.js';
 import { punchStats } from './punchstats.js';
+import { typeTrusted } from './trust.js';
 import { programById, programProgress, stepLabel, stepMinutes, suggestProgram } from './programs.js';
 import { renderFuel, fuelTile } from './views/fuel.js';
 import { sessionXp, xpTotal, levelOf, dayStreak } from './xp.js';
@@ -49,7 +50,7 @@ let state = store.load();
 const view = $('#view');
 applyTheme(state.settings.theme);
 // Saved data that couldn't be read is kept aside (store.RESCUE), never silently replaced.
-if (store.loadProblem) setTimeout(() => toast(store.loadProblem === 'rescued' ? 'Your saved data could not be read. A copy was kept: Settings → Your data.' : 'Your saved data could not be read.'), 800);
+if (store.loadProblem) setTimeout(() => toast(store.loadProblem === 'rescued' ? 'Your saved data could not be read. A copy was kept: Settings → Your data.' : store.loadProblem === 'setAside' ? `${store.setAsideCount} damaged record${store.setAsideCount === 1 ? ' was' : 's were'} set aside; everything else loaded. Settings → Your data.` : 'Your saved data could not be read.'), 800);
 
 // Model cache: recomputed only when data changes.
 let version = 0;
@@ -59,7 +60,7 @@ function persist() {
   if (!store.save(state)) toast('Could not save — storage is full or blocked.');
 }
 
-export const APP_VERSION = '2026.10.25-2';
+export const APP_VERSION = '2026.10.25-3';
 
 const app = {
   version: APP_VERSION,
@@ -279,7 +280,13 @@ function renderHome() {
   // The one coaching insight that leads the screen: the punch most worth fixing (measured), else
   // the technique that breaks down, else the second reason behind today's objective.
   const ps = sessions.length ? punchStats(sessions, { days: 30 }) : null;
-  const pf = ps?.focus && ps.types.find((x) => x.type === ps.focus);
+  // One fix at a time: the root problem Coach me builds today's session around (the same one it
+  // follows up), so the headline, the session and the follow-up never disagree.
+  const fix = sessions.length ? detectWeaknesses(state, ctx)[0] || null : null;
+  const fixStatus = fix ? adoption(state, fix.key) : null;
+  const COVERS = { handsHome: ['rearDrop', 'slowReturn'] }; // a punch problem the fix already is
+  const pf0 = ps?.focus && ps.types.find((x) => x.type === ps.focus);
+  const pf = pf0 && !(fix && COVERS[fix.key]?.includes(pf0.focus[0].key)) ? pf0 : null;
   const insight = pf ? { label: 'Fix next', title: `${pf.name}: ${pf.focus[0].text.toLowerCase()}`, href: '#punches', cta: 'Drill it' }
     : decay ? { label: decay.kind === 'fatigue' ? 'Breaks down under fatigue' : 'Technical weakness', title: decay.text, href: '#progress/analysis', cta: 'See why' }
     : day.why[1] ? { label: 'Coach note', title: day.why[1], href: '#coachme', cta: null } : null;
@@ -287,7 +294,7 @@ function renderHome() {
 
   view.innerHTML = `
     ${pageHead('Today', { eyebrow: esc(dateLine) })}
-    ${fresh ? '' : `${todayHero({ day, rec, checkin, insight })}
+    ${fresh ? '' : `${todayHero({ day, rec, checkin, insight, fix, fixStatus })}
     ${xpHTML()}
     ${programHTML()}
     ${showCheckin && !checkin ? `<section class="card" id="checkinCard"><div class="card-head"><h2>Morning check-in</h2><button class="linkbtn small" id="hideCheckin">Later</button></div>${checkinForm()}</section>` : ''}
@@ -366,12 +373,13 @@ function renderHome() {
 }
 
 // The top of Today: the objective and why, one action, readiness, and the coaching insight.
-function todayHero({ day, rec, checkin, insight }) {
+function todayHero({ day, rec, checkin, insight, fix = null, fixStatus = null }) {
   const rest = /^Rest day|^Recover/.test(day.objective);
+  const showFix = fix && !rest;
   return `<section class="today-hero">
-    <div class="eyebrow">Today's objective</div>
-    <h2 class="th-obj">${esc(day.objective)}</h2>
-    ${day.why[0] ? `<p class="th-why">${esc(day.why[0])}</p>` : ''}
+    <div class="eyebrow">${showFix ? 'Your fix' : "Today's objective"}</div>
+    <h2 class="th-obj">${esc(showFix ? fix.name : day.objective)}</h2>
+    ${showFix ? `<p class="th-why"><b>Do:</b> ${esc(fix.do)}</p>${fixStatus ? `<p class="th-why th-status ${fixStatus.status || ''}">${esc(fixStatus.text)}</p>` : ''}` : day.why[0] ? `<p class="th-why">${esc(day.why[0])}</p>` : ''}
     <a class="btn primary big block th-go" href="#coachme">${rest ? 'See today’s recovery →' : `Start session${day.minutes ? ` · ${day.minutes} min` : ''} →`}</a>
     <div class="th-grid">
       ${checkin ? `<button class="th-tile th-ready" type="button" id="redoCheckin" aria-label="Readiness ${rec.readiness ?? 'unknown'}, ${esc(STATUS_WORD[rec.status])}. Tap to redo the check-in.">
@@ -390,7 +398,7 @@ function todayHero({ day, rec, checkin, insight }) {
   </section>`;
 }
 
-// Level, XP to the next one, the day streak and this week's training days.
+// Level, XP to the next one, the streak (rest days allowed) and this week's training days.
 function xpHTML() {
   if (!state.sessions.length) return '';
   const lv = levelOf(xpTotal(state.sessions, state.food));
@@ -402,7 +410,7 @@ function xpHTML() {
       <span class="xp-badge" aria-label="Level ${lv.level}"><small>LV</small>${lv.level}</span>
       <div class="xp-main"><b>${esc(lv.name)}</b><span class="small muted">${lv.xp.toLocaleString()} XP${lv.next ? ` · ${(lv.next - lv.xp).toLocaleString()} to ${esc(levelOf(lv.next).name)}` : ' · top level'}</span>
         <div class="bar thin"><div style="width:${lv.pct}%"></div></div></div>
-      <div class="xp-stat" title="Days in a row you trained"><b class="num">${streak ? '🔥' : ''}${streak}</b><span>day streak</span></div>
+      <div class="xp-stat" title="Training days in your current run. Rest days don't break it (up to 2 in a row)."><b class="num">${streak ? '🔥' : ''}${streak}</b><span>streak</span></div>
       <span class="ring sm wk-ring" style="--v:${Math.min(100, (wk.days / goal) * 100)}" title="Training days this week"><b>${wk.days}<small>/${goal}</small></b></span>
     </div>
   </section>`;
@@ -914,8 +922,17 @@ function showRecap(n) {
   el.innerHTML = `<div class="eyebrow">Round ${n} of ${live.timer.rounds}</div>
     ${live.tracking !== 'none' || punches ? `<div class="recap-big">${punches}<span>punches${prev != null && prev > 0 ? ` · ${punches >= prev ? '▲' : '▼'} ${Math.abs(punches - prev)} on last round` : ''}</span></div>` : ''}
     <div class="recap-row">${cell(punches ? ppm : null, 'per min')}${cell(f?.frames > 30 && f.guard != null ? `${f.guard}%` : null, 'hands up')}${cell(f?.speed != null ? speedText(f.speed, state.profile.unit) : null, 'hand speed')}</div>
-    ${f?.frames > 30 ? `<p class="recap-fix ${fix ? '' : 'good'}">${fix ? `Next round: ${esc(fix.replace(/\.$/, '').toLowerCase())}` : '✓ Good round. Same again.'}</p>` : ''}`;
+    ${f?.frames > 30 ? `<p class="recap-fix ${fix ? '' : 'good'}">${fix ? `Next round: ${esc(fix.replace(/\.$/, '').toLowerCase())}` : '✓ Good round. Same again.'}</p>` : ''}
+    ${upNextHTML(n)}`;
   el.hidden = false;
+}
+
+// During the rest: what the next round asks of you, in one line.
+function upNextHTML(n) {
+  if (n >= live.timer.rounds) return '';
+  const c = live.plan.rounds_?.[n]?.constraint;
+  const what = c && CONSTRAINTS[c] ? CONSTRAINTS[c].name : live.plan.defense ? 'slip, roll and block on the call' : live.plan.drill ? `${live.plan.drill.name}, again` : live.plan.program ? `${live.plan.program.name.split(': ').pop()}, again` : live.plan.libDrill ? `${live.plan.libDrill.name}, again` : live.plan.callList ? 'the same calls' : null;
+  return what ? `<p class="recap-next"><span>Up next · round ${n + 1}</span>${esc(what)}</p>` : '';
 }
 
 // Back from a locked screen: say where the session is now.
@@ -1297,7 +1314,7 @@ function punchBreakdown(by) {
   if (!by) return '';
   const total = Object.values(by).reduce((a, b) => a + b, 0) || 1;
   return `<div class="breakdown">${Object.entries(by).map(([k, v]) => `
-    <div class="bd-row"><span>${PUNCH_NAMES[k]}</span><div class="bd-bar"><div style="width:${(v / total) * 100}%"></div></div><b>${v}</b></div>`).join('')}</div>`;
+    <div class="bd-row"><span>${PUNCH_NAMES[k]}${typeTrusted(k) ? '' : ' <em class="unv-tag" title="Often misread for another punch">?</em>'}</span><div class="bd-bar"><div style="width:${(v / total) * 100}%"></div></div><b>${v}</b></div>`).join('')}</div>`;
 }
 
 function fatigueTable(s) {
@@ -1352,7 +1369,7 @@ function sessionDetailHTML(s, fb) {
     ${(s.constraints || []).length ? `<h3>Constraint rounds</h3><ul class="small">${s.constraints.map((c) => `<li>R${c.round} ${esc(CONSTRAINTS[c.key]?.name || c.key)}${c.opponent ? ` vs ${esc(OPPONENTS[c.opponent].name.toLowerCase())}` : ''}: ${c.compliance != null ? `${c.compliance}%${c.auto ? ' (camera)' : ''}` : 'not rated'}</li>`).join('')}</ul>` : ''}
     ${hits.length ? `<h3>Why you got hit</h3><ul class="small">${hits.map(([k, n]) => `<li>${esc(HIT_REASONS[k]?.name || k)}: ${n}</li>`).join('')}</ul>` : ''}
     ${(s.positives || []).length ? `<p class="small"><b>What worked:</b> ${s.positives.map((k) => esc(POSITIVES[k]?.name || k)).join(', ')}</p>` : ''}
-    ${s.punches?.byType ? `<h3>Punch mix</h3>${punchBreakdown(s.punches.byType)}` : ''}
+    ${s.punches?.byType ? (typesOk(s) ? `<h3>Punch mix</h3>${punchBreakdown(s.punches.byType)}` : '<p class="small muted">Punch types not shown: filmed side-on or from behind, where the camera can\'t tell a cross from a hook. The count still stands.</p>') : ''}
     ${s.form?.comboShare != null ? `<p class="small muted">${s.form.comboShare}% of punches thrown in combinations · average combo ${s.form.avgComboLen ?? '–'} punches</p>` : ''}
     ${combosHTML(s)}
     ${roundsTable(s)}

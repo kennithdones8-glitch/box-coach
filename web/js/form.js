@@ -1162,7 +1162,7 @@ export class FormAnalyzer {
         this._calibPush('rejected', [role === 'lead' ? 'L' : 'R', r2(h.peakSpeed), r2(h.peakExt), Math.round(h.peakAngle), 0, 'you']);
         return;
       }
-      if (p.kind !== 'none') { kind = p.kind; margin = p.share; }
+      if (p.kind && p.kind !== 'none') { kind = p.kind; margin = p.share; }
     }
     this.recent.push({ ...feats, disp: h.peakDisp, role });
     if (this.recent.length > 24) this.recent.shift();
@@ -1182,7 +1182,8 @@ export class FormAnalyzer {
     const r3 = (x) => Math.round(x * 1000) / 1000;
     this.event('punch', t, conf, {
       type, role, vis, speed: h.peakSpeed, fwd, lat, baseKind: base.kind, afterFeint: setUp || undefined,
-      typeUnsure: awayFromCamera(this.face) || undefined, // thrown with your back to the camera setup: this.sig ? { ...this.sig } : null,
+      // Why the type is a guess: your back to the camera, or side-on (see typesOk in coach.js).
+      typeUnsure: awayFromCamera(this.face) ? 'away' : this.face && Math.abs(this.face.x) > 0.7 ? 'side' : undefined, setup: this.sig ? { ...this.sig } : null,
       f: { angle: h.peakAngle, ext: h.peakExt, rise: h.maxRise, path: h.path.map(([a, b]) => [r3(a), r3(b)]), disp: h.peakDisp.map(r3) },
       i2: h.i2 ? { ext: r3(h.i2.ext), angle: Math.round(h.i2.maxAngle), fore: r3(h.i2.fore), elbUp: r3(h.i2.elbUp), dx: r3(h.i2.dx), dy: r3(h.i2.dy), vis: r3(h.i2.vis) } : null,
       face: face ? face.map(r3) : null,
@@ -1222,7 +1223,7 @@ export class FormAnalyzer {
       if (reader) {
         const p = reader.predict(personalExample({ ...e, setup: e.setup || this.sig }, null));
         if (p.kind === 'none' && p.share >= 0.7) { e.notPunch = true; margin = 0; } // starts unticked in review
-        else if (p.kind !== 'none') { kind = p.kind; margin = p.share; }
+        else if (p.kind && p.kind !== 'none') { kind = p.kind; margin = p.share; }
       }
       const type = PUNCH_TYPE[kind][e.role];
       if (type !== e.type) changed++;
