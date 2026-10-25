@@ -53,8 +53,6 @@ export function renderPrograms(el, app) {
   const ap = active && progressOf(state, active);
   const suggest = programById(suggestProgram(state.profile));
   const list = PROGRAMS.filter((p) => progCat === 'all' || p.cat === progCat);
-  const drills = allDrills();
-  const picks = ['slip-roll', 'weight-transfer', 'pivot-out', 'tabata', 'triple-jab', 'head-after'].map((x) => drills.find((d) => d.id === x)).filter(Boolean);
 
   el.innerHTML = `
     ${active && !ap.finished ? `<section class="hero-band">
@@ -70,14 +68,10 @@ export function renderPrograms(el, app) {
       <a class="btn primary big block" href="#train/programs/${suggest.id}">Suggested for you: ${esc(suggest.name)} →</a>
     </section>`}
 
-    <div class="sec-head"><h2>Programs</h2><span class="muted small">${PROGRAMS.length} pro-built plans</span></div>
+    <div class="sec-head"><h2>All programs</h2><span class="muted small">${PROGRAMS.length}</span></div>
     <div class="chips filt" role="group" aria-label="Filter programs">${PROGRAM_CATS.map(([k, l]) => `<button class="chip ${k === progCat ? 'on' : ''}" type="button" data-pcat="${k}" aria-pressed="${k === progCat}">${esc(l)}</button>`).join('')}</div>
     <div class="carousel">${list.map((p) => programCard(state, p)).join('')}</div>
-
-    <div class="sec-head"><h2>Drills</h2><a class="small" href="#train/drills">All ${drills.length} →</a></div>
-    <p class="small muted" style="margin:-6px 2px 10px">Focused skill sessions, a few minutes each.</p>
-    <div class="drill-grid">${picks.map((d) => drillCard(d, openDrill === d.id)).join('')}</div>
-    <p class="small muted" style="margin:12px 2px 0">Want to set your own rounds? <a href="#train/session">Custom session →</a></p>`;
+`;
   bind(el, app);
 }
 

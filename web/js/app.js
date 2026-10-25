@@ -59,7 +59,7 @@ function persist() {
   if (!store.save(state)) toast('Could not save — storage is full or blocked.');
 }
 
-export const APP_VERSION = '2026.10.12-2';
+export const APP_VERSION = '2026.10.25-1';
 
 const app = {
   version: APP_VERSION,
@@ -91,6 +91,8 @@ const app = {
     persist();
     startSession({ tracking: st.plan.defense ? 'camera' : camOr(), focus: null, ...structuredClone(st.plan), program: { id: prog.id, step: i, name: `${prog.name}: ${st.name}` } });
   },
+  // A stopwatch or plain round timer you chose to save (Train → Stopwatch / Round timer).
+  logSession: (s) => saveSession(s),
   // A drill from the library (Train → Drills). Punch drills go through startDrill so they're followed up.
   startLibraryDrill: (d) => {
     if (!d) return;
@@ -136,7 +138,10 @@ const mods = {
   study: lazy(() => import('./views/study.js')),
   punches: lazy(() => import('./views/punches.js')),
   programs: lazy(() => import('./views/programs.js')),
+  clock: lazy(() => import('./views/clock.js').then((m) => { clockMod = m; return m; })),
 };
+let clockMod = null;
+const clockState = () => clockMod?.clockRunning() ?? { stopwatch: false, rounds: false };
 let videoMod = null;
 const videoBusy = () => videoMod?.videoBusy() ?? false;
 // Render a lazily loaded screen, unless you've already moved on to another one.
@@ -533,9 +538,16 @@ function bindCheckin() {
 
 let draft = null;
 
+// Train: a short list of choices; every other screen is one tap away and has a way back.
+const TRAIN_PAGES = { programs: 'Programs', drills: 'Drills', session: 'Free round', workouts: 'Workouts', combos: 'Combos', video: 'Video', study: 'Study', stopwatch: 'Stopwatch', timer: 'Round timer' };
 function renderTrain() {
-  const sub = subOf('programs');
-  view.innerHTML = `${pageHead('Train', { eyebrow: 'Put in the rounds', nav: subnav('train', [['programs', 'Programs'], ['drills', 'Drills'], ['session', 'Custom'], ['combos', 'Combos'], ['video', 'Video'], ['study', 'Study']], sub) })}<div id="trainBody"></div>`;
+  const sub = subOf('home');
+  if (!TRAIN_PAGES[sub]) return renderTrainHub();
+  const detail = sub === 'programs' && location.hash.split('/')[2]; // a program's page has its own way back
+  view.innerHTML = `${detail ? '' : '<a class="back top" href="#train">‹ Train</a>'}${detail ? '' : pageHead(TRAIN_PAGES[sub])}<div id="trainBody"></div>`;
+  if (sub === 'stopwatch') return show('clock', (m) => m.renderStopwatch($('#trainBody'), app));
+  if (sub === 'timer') return show('clock', (m) => m.renderRoundTimer($('#trainBody'), app));
+  if (sub === 'workouts') return renderWorkouts($('#trainBody'));
   if (sub === 'programs') return show('programs', (m) => m.renderPrograms($('#trainBody'), app));
   if (sub === 'drills') return show('programs', (m) => m.renderDrills($('#trainBody'), app));
   if (sub === 'video') return show('video', (m) => m.renderVideo($('#trainBody'), app));
@@ -553,22 +565,6 @@ function renderTrain() {
   const rests = [0, 10, 15, 30, 45, 60, 90, 120];
 
   body.innerHTML = `
-    <section class="card test-card">
-      <div class="card-head"><b>🎯 Punch test</b><span class="muted small">3 min · camera</span></div>
-      <p class="small muted" style="margin:4px 0 8px">I call 10 of each punch, you throw them. You'll see what the camera got right, and it tunes punch reading to you. Do it from each camera spot you use.</p>
-      <button class="btn primary block" id="punchTest" type="button">Start punch test</button>
-    </section>
-    <section class="card test-card">
-      <div class="card-head"><b>🛡️ Defense drill</b><span class="muted small">3 × 2 min · camera</span></div>
-      <p class="small muted" style="margin:4px 0 8px">I call slip, roll or block every few seconds; the camera checks you did it in time. Block = both gloves up to your forehead.</p>
-      <button class="btn ghost block" id="defenseDrill" type="button">Start defense drill</button>
-    </section>
-    <section class="card">
-      <div class="card-head"><h2>Workouts</h2><span class="muted small">one tap to start</span></div>
-      <ul class="rows workouts">${allWorkouts(state.profile).map((w) => `
-        <li><span class="row-ico">${w.icon}</span><div class="grow"><b>${esc(w.name)}</b> <span class="muted small">· ${esc(w.level)}</span><br><span class="small muted">${esc(w.detail)}</span></div>
-        <button class="btn primary sm" type="button" data-workout="${w.id}">Start</button></li>`).join('')}</ul>
-    </section>
     <div class="chips">
         <button class="chip" data-preset="fight">Fight sim ${f.rounds}×${fmt(f.roundSec)}</button>
         <button class="chip" data-preset="6x3">6×3</button>
@@ -641,12 +637,6 @@ function renderTrain() {
     persist();
     startSession({ ...draft, focus: state.memory.focus?.area || null, rounds_: rounds });
   });
-  $('#punchTest').addEventListener('click', () => app.startPunchTest());
-  $('#defenseDrill').addEventListener('click', () => app.startDefense());
-  $$('[data-workout]').forEach((b) => b.addEventListener('click', () => {
-    const w = allWorkouts(state.profile).find((x) => x.id === b.dataset.workout);
-    if (w) startSession({ tracking: state.settings.tracking, combos: state.settings.combos, constraints: !!w.plan.rounds_, focus: null, ...structuredClone(w.plan), workout: w.id });
-  }));
   $$('[data-preset]').forEach((b) => b.addEventListener('click', () => {
     const presets = {
       fight: { type: 'bag', ...f, comboLevel: 3 },
@@ -657,6 +647,56 @@ function renderTrain() {
     };
     draft = { ...draft, ...presets[b.dataset.preset] };
     renderTrain();
+  }));
+}
+
+// The Train screen: two plain clocks, three ways to train, and the rest under More.
+function renderTrainHub() {
+  const prog = programById(state.profile.program);
+  const pr = prog && programProgress(prog, state.sessions, state.profile.programs?.[prog.id]?.since);
+  const cur = prog && !pr.finished ? prog.steps[pr.next] : null;
+  const run = clockState();
+  view.innerHTML = `
+    ${pageHead('Train')}
+    <div class="clock-tiles">
+      <a class="clock-tile" href="#train/stopwatch"><span class="ct-ico" aria-hidden="true">⏱</span><b>Stopwatch</b><span>${run.stopwatch ? '<em>Running</em>' : 'Laps · no coaching'}</span></a>
+      <a class="clock-tile" href="#train/timer"><span class="ct-ico" aria-hidden="true">🔔</span><b>Round timer</b><span>${run.rounds ? '<em>Running</em>' : 'Bells only · no coaching'}</span></a>
+    </div>
+    <div class="choices">
+      <div class="choice">
+        <a class="choice-main" href="${cur ? `#train/programs/${prog.id}` : '#train/programs'}"><span class="ch-ico" aria-hidden="true">📋</span>
+          <span class="ch-t"><b>Program</b><span>${cur ? `${esc(prog.name)} · ${esc(cur.name)}` : '14 plans, week by week'}</span></span></a>
+        ${cur ? '<button class="btn primary sm" type="button" id="hubProg" aria-label="Start the next program session">▶ Start</button>' : '<span class="chev">›</span>'}
+      </div>
+      <a class="choice" href="#train/drills"><span class="ch-ico" aria-hidden="true">🎯</span><span class="ch-t"><b>Drill</b><span>Short sessions on one skill</span></span><span class="chev">›</span></a>
+      <a class="choice" href="#train/session"><span class="ch-ico" aria-hidden="true">🥊</span><span class="ch-t"><b>Free round</b><span>Your rounds, with the coach and camera</span></span><span class="chev">›</span></a>
+    </div>
+    <details class="card more-menu">
+      <summary><b>More</b><span class="chev">›</span></summary>
+      <ul class="rows">
+        <li><a class="row-main" href="#train/workouts"><b>Workouts</b><span>Ready-made sessions, one tap</span></a></li>
+        <li><a class="row-main" href="#train/combos"><b>Combos</b><span>Build your own, have them called</span></a></li>
+        <li><a class="row-main" href="#train/video"><b>Video analysis</b><span>Analyse a clip of you training</span></a></li>
+        <li><a class="row-main" href="#train/study"><b>Study</b><span>Watch and break down fights</span></a></li>
+        <li><button class="row-main linkrow" type="button" id="punchTest"><b>Punch test</b><span>3 min · tunes the camera to you</span></button></li>
+        <li><button class="row-main linkrow" type="button" id="defenseDrill"><b>Defense drill</b><span>3 × 2 min · the camera checks you</span></button></li>
+      </ul>
+    </details>`;
+  $('#hubProg')?.addEventListener('click', () => app.startProgramStep(prog, pr.next));
+  $('#punchTest').addEventListener('click', () => app.startPunchTest());
+  $('#defenseDrill').addEventListener('click', () => app.startDefense());
+}
+
+// Train → More → Workouts: ready-made sessions.
+function renderWorkouts(body) {
+  body.innerHTML = `<section class="card">
+    <ul class="rows workouts">${allWorkouts(state.profile).map((w) => `
+      <li><span class="row-ico">${w.icon}</span><div class="grow"><b>${esc(w.name)}</b> <span class="muted small">· ${esc(w.level)}</span><br><span class="small muted">${esc(w.detail)}</span></div>
+      <button class="btn primary sm" type="button" data-workout="${w.id}">Start</button></li>`).join('')}</ul>
+  </section>`;
+  $$('[data-workout]', body).forEach((b) => b.addEventListener('click', () => {
+    const w = allWorkouts(state.profile).find((x) => x.id === b.dataset.workout);
+    if (w) startSession({ tracking: state.settings.tracking, combos: state.settings.combos, constraints: !!w.plan.rounds_, focus: null, ...structuredClone(w.plan), workout: w.id });
   }));
 }
 

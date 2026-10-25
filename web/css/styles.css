@@ -1009,3 +1009,50 @@ body.in-live .toast { bottom: auto; top: calc(env(safe-area-inset-top) + 8px); }
 .remind summary { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; cursor: pointer; list-style: none; }
 .remind summary::-webkit-details-marker { display: none; }
 .remind .btn { margin: 0; }
+
+/* Train: plain clocks and three choices */
+.back.top { display: inline-block; margin: 12px 2px 0; }
+.back.top + .page-head { padding-top: 4px; }
+.clock-tiles { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; margin-bottom: 12px; }
+.clock-tile { display: flex; flex-direction: column; gap: 2px; padding: 16px 14px; border-radius: var(--radius); background: var(--surface); border: 1px solid var(--line); color: var(--ink); font-weight: 400; }
+.clock-tile:active { transform: scale(0.98); }
+.ct-ico { font-size: 1.6rem; line-height: 1; margin-bottom: 8px; }
+.clock-tile b { font-family: var(--num); font-size: 1.45rem; text-transform: uppercase; line-height: 1; }
+.clock-tile span:last-child { font-size: 0.78rem; color: var(--muted); }
+.clock-tile em { font-style: normal; color: var(--good); font-weight: 700; }
+.choices { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; margin-bottom: 12px; }
+.choice { display: flex; align-items: center; gap: 12px; min-height: 84px; padding: 14px; border-radius: var(--radius); background: var(--surface); border: 1px solid var(--line); color: var(--ink); font-weight: 400; }
+.choice:first-child { border-color: color-mix(in srgb, var(--accent-fill) 45%, var(--line)); background: radial-gradient(100% 120% at 0% 0%, color-mix(in srgb, var(--accent-fill) 14%, transparent), transparent 65%), var(--surface); }
+.choice-main { flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; color: inherit; font-weight: 400; }
+.ch-ico { flex: none; width: 46px; height: 46px; border-radius: 12px; display: grid; place-items: center; font-size: 1.4rem; background: var(--surface-3); }
+.ch-t { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.ch-t b { font-family: var(--num); font-size: 1.6rem; text-transform: uppercase; line-height: 1; }
+.ch-t span { font-size: 0.85rem; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.choice .chev { color: var(--muted); font-size: 1.4rem; }
+.more-menu summary { display: flex; justify-content: space-between; align-items: center; cursor: pointer; list-style: none; }
+.more-menu summary::-webkit-details-marker { display: none; }
+.more-menu[open] summary .chev { transform: rotate(90deg); }
+.more-menu .rows { margin-top: 8px; }
+.row-main { display: flex; flex-direction: column; flex: 1; min-width: 0; color: var(--ink); font-weight: 400; }
+.row-main span { font-size: 0.82rem; color: var(--muted); }
+.linkrow { background: none; border: 0; padding: 0; font: inherit; text-align: left; cursor: pointer; }
+
+/* Stopwatch and round timer */
+.clock-card { text-align: center; padding: 24px 16px 16px; margin-bottom: 12px; border-radius: var(--radius); background: var(--surface); border: 1px solid var(--line); }
+.clock-face { font-family: var(--num); font-weight: 700; font-size: clamp(4.4rem, 24vw, 7.5rem); line-height: 1; font-variant-numeric: tabular-nums; letter-spacing: 0; }
+.clock-ph { font-family: var(--num); font-weight: 700; font-size: 1.4rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+.clock-card.ph-work .clock-ph, .clock-card.ph-work .clock-face { color: var(--good); }
+.clock-card.ph-rest .clock-ph, .clock-card.ph-rest .clock-face { color: var(--accent); }
+.clock-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 18px; }
+.clock-btns .btn { min-height: 64px; font-size: 1.1rem; text-transform: uppercase; letter-spacing: 0.06em; font-weight: 800; }
+.clock-btns .block-span { grid-column: 1 / -1; }
+.clock-set { margin-top: 16px; text-align: left; }
+.laps { list-style: none; margin: 0; padding: 0; }
+.laps li { display: grid; grid-template-columns: 1fr auto auto; gap: 14px; align-items: baseline; padding: 9px 0; border-top: 1px solid var(--line); margin: 0; }
+.laps li:first-child { border-top: 0; }
+.laps b { font-size: 1.2rem; }
+.laps li.best b { color: var(--good); }
+.laps li.worst b { color: var(--bad); }
+.save-ask { border-color: var(--accent-fill); }
+.save-ask .seg span { padding: 8px 10px; }
+.save-ask .btn { margin: 0; }

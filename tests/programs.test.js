@@ -154,3 +154,22 @@ test('program reminders: a calendar event per remaining session on the chosen da
   assert.ok(ics.split('\r\n').every((l) => Array.from(l).length <= 75), 'lines folded');
   assert.ok(ics.startsWith('BEGIN:VCALENDAR') && ics.trimEnd().endsWith('END:VCALENDAR'));
 });
+
+import { Stopwatch, fmtMs } from '../web/js/timer.js';
+
+test('stopwatch: pause, resume and laps on wall-clock time', () => {
+  let t = 1000;
+  const w = new Stopwatch(() => t);
+  w.start(); t += 5000;
+  assert.equal(w.lap(), 5000);
+  t += 3000; w.pause(); t += 10000; // paused time doesn't count
+  assert.equal(w.elapsed(), 8000);
+  w.start(); t += 2000;
+  assert.equal(w.lap(), 5000);
+  assert.deepEqual(w.laps, [5000, 5000]);
+  assert.equal(fmtMs(62345), '1:02.34');
+  assert.equal(fmtMs(3723400), '1:02:03.4');
+  w.reset();
+  assert.equal(w.elapsed(), 0);
+  assert.equal(w.running, false);
+});
