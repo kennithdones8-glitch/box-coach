@@ -154,3 +154,24 @@ test('beginner answers become settings', async () => {
   const p = applyOnboarding({ goal: 'compete', level: 'advanced', stance: 'orthodox', weeklyGoal: 6 }, { want: 'fitness', experience: 'new', hand: 'left', days: '3' });
   assert.deepEqual(p, { goal: 'fitness', level: 'beginner', stance: 'southpaw', weeklyGoal: 3, onboarded: true });
 });
+
+test('the coaching cycle only judges a fix from comparable, well-measured sessions', () => {
+  const since = { coach: { assigned: { handsHome: daysAgo(10) } } };
+  // One session each side: too early to claim anything, even a big jump.
+  const one = adoption({ ...since, sessions: [cam(15, { guard: [50, 50, 50] }), cam(5, { guard: [85, 85, 85] })] }, 'handsHome', now);
+  assert.equal(one.status, 'early');
+  // A badly tracked session is never a pass, a fail or evidence of change.
+  const lost = cam(3, { guard: [95, 95, 95], extra: { calib: { frames: 1000, tracked: 300 } } });
+  assert.equal(metricOf(lost, 'guard'), null);
+  assert.equal(evaluateCoached(lost, { root: 'handsHome', level: 1 }).value, null);
+  // Side-on: anything built on punch types (which punch opens your combos) isn't measured.
+  const side = cam(3, { extra: {} });
+  side.form.sidePct = 85;
+  assert.equal(metricOf(side, 'opener'), null);
+  assert.ok(metricOf(cam(3), 'opener') != null);
+  // Bag sessions are compared with bag sessions when there are enough of each.
+  const bag = (d, g) => ({ ...cam(d, { guard: [g, g, g] }), type: 'bag' });
+  const mixed = adoption({ ...since, sessions: [cam(30, { guard: [90, 90, 90] }), cam(25, { guard: [90, 90, 90] }), bag(20, 60), bag(15, 60), bag(5, 72), bag(2, 74)] }, 'handsHome', now);
+  assert.equal(mixed.status, 'taking', `bag vs bag: ${mixed.text}`);
+  assert.match(mixed.text, /60% → 73%/);
+});

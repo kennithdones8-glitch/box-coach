@@ -1109,3 +1109,8 @@ body.in-story { overflow: hidden; }
 .unv-tag { font-style: normal; font-size: 0.62rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; color: var(--est); border: 1px solid currentColor; border-radius: 4px; padding: 0 4px; margin-left: 4px; vertical-align: 1px; }
 .mix-row.unv .mix-bar div { background: var(--est); opacity: 0.6; }
 .warn-note { color: var(--warn); }
+.th-status { font-size: 0.8rem; color: var(--muted); }
+.th-status.taking, .th-status.good { color: var(--good); }
+.th-status.worse { color: var(--warn); }
+.recap-next { margin: 10px 0 0; font-family: var(--num); font-weight: 700; font-size: 1.35rem; text-transform: uppercase; line-height: 1.1; color: #fff; }
+.recap-next span { display: block; font-family: var(--font-ui); font-size: 0.68rem; letter-spacing: 0.12em; color: var(--live-c, var(--accent)); margin-bottom: 4px; }

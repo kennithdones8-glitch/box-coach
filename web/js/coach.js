@@ -110,7 +110,9 @@ export function clamp(v, lo, hi) {
 
 export function scoreSession(session, profile = {}) {
   const scores = {};
-  const f = session.form;
+  // Nothing is scored from a session the camera didn't track well (it would be a confident
+  // number from a guess): the session still counts, just without form scores.
+  const f = trackingOk(session) ? session.form : null;
   if (f) {
     scores.guard = f.guard;
     scores.stance = f.stance;
@@ -119,7 +121,7 @@ export function scoreSession(session, profile = {}) {
     scores.head = f.head == null ? null : clamp(Math.round(f.head * 1.6), 0, 100);
     scores.handReturn = returnScore(f.handReturnMs);
   }
-  const ppm = outputPpm(session);
+  const ppm = punchCountOk(session) ? outputPpm(session) : null;
   if (ppm != null && session.type !== 'sparring') {
     const target = PPM_TARGET[profile.level] || PPM_TARGET.beginner;
     scores.output = clamp(Math.round((ppm / target) * 100), 0, 100);
@@ -150,7 +152,7 @@ export const INSIGHTS = {
 
 export function detectPatterns(session) {
   const found = [];
-  const f = session.form;
+  const f = trackingOk(session) ? session.form : null;
   if (f) {
     const rounds = (f.perRound || []).filter((r) => r.frames > 0);
     if (rounds.length >= 3) {
@@ -329,7 +331,7 @@ export function feedback(session, history, mem, profile = {}) {
     if (avg != null && avg - v >= 10) fixes.push(`${AREAS[area]} slipped to ${v} (you usually sit around ${Math.round(avg)}).`);
   }
 
-  const f = session.form;
+  const f = trackingOk(session) ? session.form : null;
   if (f) {
     if (f.guard != null && f.guard < TARGETS.guard) fixes.push(`Hands were up ${f.guard}% of the time between punches. Aim for 80%+.`);
     if (f.rearDropPct != null && f.rearDropPct >= 25) fixes.push(`Your rear hand dropped on ${f.rearDropPct}% of lead-hand punches.`);
@@ -359,8 +361,10 @@ export function feedback(session, history, mem, profile = {}) {
   }
   fixes.unshift(...recurring);
 
+  // Drills for your focus area, only when this session actually measured that area (a timer-only
+  // session doesn't get the same technique drills again).
   const focusArea = mem?.focus?.area;
-  const drills = focusArea ? DRILLS[focusArea].slice(0, 2) : [];
+  const drills = focusArea && scores[focusArea] != null ? DRILLS[focusArea].slice(0, 2) : [];
   if (!wins.length) wins.push('You showed up and put the work in. That compounds.');
   return { wins: dedupe(wins), fixes: dedupe(fixes).slice(0, 6), drills };
 }

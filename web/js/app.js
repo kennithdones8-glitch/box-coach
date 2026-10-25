@@ -20,7 +20,7 @@ import { $, $$, esc, fmtDate, shortDate, toast, scoreClass, scoreChip, subnav, s
 import { reviewFieldsHTML, bindReview, readReview } from './views/review.js';
 import { buildReport, reportSize } from './report.js';
 import { safetyNotes, isStandalone, isIOS, askPersist } from './safety.js';
-import { adjustNextRound, evaluateCoached, applyEvaluation, drillFor, BENCHMARK, applyOnboarding, ONBOARD, EQUIPMENT } from './coachme.js';
+import { adjustNextRound, evaluateCoached, applyEvaluation, drillFor, BENCHMARK, applyOnboarding, ONBOARD, EQUIPMENT, detectWeaknesses, adoption } from './coachme.js';
 import { trustedCal } from './calibrate.js';
 import { installErrorLog } from './bugreport.js';
 
@@ -280,7 +280,13 @@ function renderHome() {
   // The one coaching insight that leads the screen: the punch most worth fixing (measured), else
   // the technique that breaks down, else the second reason behind today's objective.
   const ps = sessions.length ? punchStats(sessions, { days: 30 }) : null;
-  const pf = ps?.focus && ps.types.find((x) => x.type === ps.focus);
+  // One fix at a time: the root problem Coach me builds today's session around (the same one it
+  // follows up), so the headline, the session and the follow-up never disagree.
+  const fix = sessions.length ? detectWeaknesses(state, ctx)[0] || null : null;
+  const fixStatus = fix ? adoption(state, fix.key) : null;
+  const COVERS = { handsHome: ['rearDrop', 'slowReturn'] }; // a punch problem the fix already is
+  const pf0 = ps?.focus && ps.types.find((x) => x.type === ps.focus);
+  const pf = pf0 && !(fix && COVERS[fix.key]?.includes(pf0.focus[0].key)) ? pf0 : null;
   const insight = pf ? { label: 'Fix next', title: `${pf.name}: ${pf.focus[0].text.toLowerCase()}`, href: '#punches', cta: 'Drill it' }
     : decay ? { label: decay.kind === 'fatigue' ? 'Breaks down under fatigue' : 'Technical weakness', title: decay.text, href: '#progress/analysis', cta: 'See why' }
     : day.why[1] ? { label: 'Coach note', title: day.why[1], href: '#coachme', cta: null } : null;
@@ -288,7 +294,7 @@ function renderHome() {
 
   view.innerHTML = `
     ${pageHead('Today', { eyebrow: esc(dateLine) })}
-    ${fresh ? '' : `${todayHero({ day, rec, checkin, insight })}
+    ${fresh ? '' : `${todayHero({ day, rec, checkin, insight, fix, fixStatus })}
     ${xpHTML()}
     ${programHTML()}
     ${showCheckin && !checkin ? `<section class="card" id="checkinCard"><div class="card-head"><h2>Morning check-in</h2><button class="linkbtn small" id="hideCheckin">Later</button></div>${checkinForm()}</section>` : ''}
@@ -367,12 +373,13 @@ function renderHome() {
 }
 
 // The top of Today: the objective and why, one action, readiness, and the coaching insight.
-function todayHero({ day, rec, checkin, insight }) {
+function todayHero({ day, rec, checkin, insight, fix = null, fixStatus = null }) {
   const rest = /^Rest day|^Recover/.test(day.objective);
+  const showFix = fix && !rest;
   return `<section class="today-hero">
-    <div class="eyebrow">Today's objective</div>
-    <h2 class="th-obj">${esc(day.objective)}</h2>
-    ${day.why[0] ? `<p class="th-why">${esc(day.why[0])}</p>` : ''}
+    <div class="eyebrow">${showFix ? 'Your fix' : "Today's objective"}</div>
+    <h2 class="th-obj">${esc(showFix ? fix.name : day.objective)}</h2>
+    ${showFix ? `<p class="th-why"><b>Do:</b> ${esc(fix.do)}</p>${fixStatus ? `<p class="th-why th-status ${fixStatus.status || ''}">${esc(fixStatus.text)}</p>` : ''}` : day.why[0] ? `<p class="th-why">${esc(day.why[0])}</p>` : ''}
     <a class="btn primary big block th-go" href="#coachme">${rest ? 'See today’s recovery →' : `Start session${day.minutes ? ` · ${day.minutes} min` : ''} →`}</a>
     <div class="th-grid">
       ${checkin ? `<button class="th-tile th-ready" type="button" id="redoCheckin" aria-label="Readiness ${rec.readiness ?? 'unknown'}, ${esc(STATUS_WORD[rec.status])}. Tap to redo the check-in.">
@@ -915,8 +922,17 @@ function showRecap(n) {
   el.innerHTML = `<div class="eyebrow">Round ${n} of ${live.timer.rounds}</div>
     ${live.tracking !== 'none' || punches ? `<div class="recap-big">${punches}<span>punches${prev != null && prev > 0 ? ` · ${punches >= prev ? '▲' : '▼'} ${Math.abs(punches - prev)} on last round` : ''}</span></div>` : ''}
     <div class="recap-row">${cell(punches ? ppm : null, 'per min')}${cell(f?.frames > 30 && f.guard != null ? `${f.guard}%` : null, 'hands up')}${cell(f?.speed != null ? speedText(f.speed, state.profile.unit) : null, 'hand speed')}</div>
-    ${f?.frames > 30 ? `<p class="recap-fix ${fix ? '' : 'good'}">${fix ? `Next round: ${esc(fix.replace(/\.$/, '').toLowerCase())}` : '✓ Good round. Same again.'}</p>` : ''}`;
+    ${f?.frames > 30 ? `<p class="recap-fix ${fix ? '' : 'good'}">${fix ? `Next round: ${esc(fix.replace(/\.$/, '').toLowerCase())}` : '✓ Good round. Same again.'}</p>` : ''}
+    ${upNextHTML(n)}`;
   el.hidden = false;
+}
+
+// During the rest: what the next round asks of you, in one line.
+function upNextHTML(n) {
+  if (n >= live.timer.rounds) return '';
+  const c = live.plan.rounds_?.[n]?.constraint;
+  const what = c && CONSTRAINTS[c] ? CONSTRAINTS[c].name : live.plan.defense ? 'slip, roll and block on the call' : live.plan.drill ? `${live.plan.drill.name}, again` : live.plan.program ? `${live.plan.program.name.split(': ').pop()}, again` : live.plan.libDrill ? `${live.plan.libDrill.name}, again` : live.plan.callList ? 'the same calls' : null;
+  return what ? `<p class="recap-next"><span>Up next · round ${n + 1}</span>${esc(what)}</p>` : '';
 }
 
 // Back from a locked screen: say where the session is now.
