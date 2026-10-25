@@ -1,6 +1,8 @@
 // Train → Programs and Train → Drills: pro-built multi-week plans, and a library of short drills.
 import { PROGRAMS, PROGRAM_CATS, programById, programProgress, stepLabel, stepMinutes, suggestProgram } from '../programs.js';
 import { allDrills, DRILL_CATS, CAT_ICON } from '../drills.js';
+import { drillScene } from '../breakdowns.js';
+import { playScene } from '../figure.js';
 import { $, $$, esc, toast } from '../ui.js';
 import { programIcs, DEFAULT_DAYS } from '../reminders.js';
 
@@ -37,6 +39,7 @@ function drillCard(d, open) {
       <span class="dc-how">${d.tag ? `${esc(d.tag)} · ` : ''}${esc(d.how)}</span>
     </button>
     ${open ? `<div class="dc-more">
+      <svg class="drill-demo" data-demo="${d.id}" role="img" aria-label="Animation: ${esc(d.name)}"></svg>
       <p class="small">Cue: <b>${esc(d.cue)}</b></p>
       <p class="small muted">${d.plan.rounds} × ${d.plan.roundSec >= 60 ? `${d.plan.roundSec / 60} min` : `${d.plan.roundSec} s`}, ${d.plan.restSec} s rest${d.plan.type === 'bag' ? ' · on the bag' : ''}${d.plan.defense ? ' · camera checks each move' : ''}</p>
       <button class="btn primary block" type="button" data-drill-go="${d.id}">▶ Start drill</button>
@@ -168,8 +171,12 @@ function bindRemind(el, app, p, pr) {
   });
 }
 
+let stopDemo = null;
 function bind(el, app, redraw = () => renderPrograms(el, app)) {
   const state = app.state;
+  stopDemo?.();
+  const demo = el.querySelector('[data-demo]');
+  if (demo) stopDemo = playScene(demo, drillScene(allDrills().find((d) => d.id === demo.dataset.demo)));
   $$('[data-pcat]', el).forEach((b) => b.addEventListener('click', () => { progCat = b.dataset.pcat; redraw(); }));
   $$('[data-dcat]', el).forEach((b) => b.addEventListener('click', () => { drillCat = b.dataset.dcat; openDrill = null; redraw(); }));
   $$('[data-open-drill]', el).forEach((b) => b.addEventListener('click', () => { openDrill = openDrill === b.dataset.openDrill ? null : b.dataset.openDrill; redraw(); }));

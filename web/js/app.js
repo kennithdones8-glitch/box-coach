@@ -59,7 +59,7 @@ function persist() {
   if (!store.save(state)) toast('Could not save — storage is full or blocked.');
 }
 
-export const APP_VERSION = '2026.10.25-1';
+export const APP_VERSION = '2026.10.25-2';
 
 const app = {
   version: APP_VERSION,
@@ -1449,6 +1449,7 @@ function renderSummary(session) {
       <div class="eyebrow">Session complete · ${fmt(session.workSec)} of work</div>
       <h1>${esc(sessionName(session))}</h1>
       ${(() => { const before = levelOf(xpTotal(state.sessions, state.food)); const after = levelOf(before.xp + sessionXp(session)); return `<div class="xp-earned"><b>+${sessionXp(session)} XP</b>${after.level > before.level ? ` <span>Level up: ${esc(after.name)}! 🎉</span>` : after.next ? ` <span class="muted">${(after.next - after.xp).toLocaleString()} to ${esc(levelOf(after.next).name)}</span>` : ''}</div>`; })()}
+      <button class="btn primary block recap-go" id="recapGo" type="button">▶ Watch your recap</button>
       ${events.newPRs.length ? `<div class="pr">🏆 New personal record: ${events.newPRs.map(esc).join(', ')}</div>` : ''}
       ${(() => { const nb = newBadges(state.sessions, session, state.profile); return nb.length ? `<div class="pr">🏅 New badge${nb.length > 1 ? 's' : ''}: ${nb.map((b) => `${b.icon} ${esc(b.name)}`).join(' · ')}</div>` : ''; })()}
       ${events.resolved.length ? `<div class="pr">✅ Habit fixed: ${events.resolved.map((k) => esc(INSIGHTS[k].text)).join(' ')}</div>` : ''}
@@ -1480,6 +1481,11 @@ function renderSummary(session) {
   bindReview(f);
   f.rpe.addEventListener('input', () => { $('#rpeOut').textContent = f.rpe.value; });
   $('#spotTest')?.addEventListener('click', () => { savePendingSummary(); app.startPunchTest(); });
+  $('#recapGo').addEventListener('click', async () => {
+    const [{ openStory }, { recapSlides }] = await Promise.all([import('./story.js'), import('./breakdowns.js')]);
+    const before = levelOf(xpTotal(state.sessions, state.food));
+    openStory(recapSlides({ ...session, feedback: fb }, { name: sessionName(session), xp: sessionXp(session), level: levelOf(before.xp + sessionXp(session)) }), { label: 'YOUR SESSION' });
+  });
   // Retest the punches it read badly: this test is saved first, so nothing is lost.
   $('#retest')?.addEventListener('click', () => {
     savePendingSummary();
