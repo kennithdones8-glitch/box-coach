@@ -3,7 +3,7 @@
 import { punchStats, drillsFor, drillProgress, PUNCH_DRILLS } from '../punchstats.js';
 import { PUNCH_DIGIT } from '../form.js';
 import { speedIn } from '../coach.js';
-import { $$, esc, shortDate, pageHead } from '../ui.js';
+import { $, $$, esc, shortDate, pageHead } from '../ui.js';
 
 const RANGES = [[30, '30 days'], [90, '90 days'], [0, 'All time']];
 let days = 30;
@@ -57,7 +57,7 @@ export function renderPunches(el, app) {
       <h2>${esc(focusX.name)}: ${esc(focusX.focus[0].text.toLowerCase())}</h2>
       ${focusX.focus.length > 1 ? `<p class="small muted">Also: ${focusX.focus.slice(1).map((f) => esc(f.text.toLowerCase())).join(' · ')}</p>` : ''}
       <p class="small"><b>${esc(focusDrill.name)}.</b> ${esc(focusDrill.how)}</p>
-      <button class="btn primary block" type="button" data-drill="${focusType}:${PUNCH_DRILLS[focusType].indexOf(focusDrill)}">Practise: 3 × 2 min</button>
+      <div class="row2"><button class="btn ghost" type="button" id="breakdownGo">▶ Breakdown</button><button class="btn primary" type="button" data-drill="${focusType}:${PUNCH_DRILLS[focusType].indexOf(focusDrill)}">Practise · 3 × 2 min</button></div>
     </section>` : ''}
 
     <section class="card">
@@ -117,6 +117,10 @@ export function renderPunches(el, app) {
 
   $$('input[name=prange]', el).forEach((r) => r.addEventListener('change', () => { days = +r.value; renderPunches(el, app); }));
   $$('[data-open]', el).forEach((b) => b.addEventListener('click', () => { open = open === b.dataset.open ? null : b.dataset.open; renderPunches(el, app); }));
+  $('#breakdownGo', el)?.addEventListener('click', async () => {
+    const [{ openStory }, { punchSlides }] = await Promise.all([import('../story.js'), import('../breakdowns.js')]);
+    openStory(punchSlides(focusX, focusDrill, { days, run: () => app.startDrill(focusType, focusDrill) }), { label: `THE ${focusX.name.toUpperCase()}` });
+  });
   $$('[data-drill]', el).forEach((b) => b.addEventListener('click', () => {
     const [type, i] = b.dataset.drill.split(':');
     const d = PUNCH_DRILLS[type]?.[+i];
